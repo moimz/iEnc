@@ -11,7 +11,7 @@ struct ClipTimeline: View {
 
     static let videoHeight: CGFloat = 52
     static let audioHeight: CGFloat = 38
-    static let rulerHeight: CGFloat = 16
+    static let rulerHeight: CGFloat = 20
     private let spacing: CGFloat = 3
     private let addWidth: CGFloat = 76
     /// 최대 확대: 1초에 80pt
@@ -164,8 +164,9 @@ private struct TimeRuler: View {
                 ticks.move(to: CGPoint(x: px + 0.5, y: size.height))
                 ticks.addLine(to: CGPoint(x: px + 0.5, y: size.height - (isMajor ? 7 : 3)))
                 if isMajor {
+                    // 글자는 눈금자 맨 위부터 (틀 밖으로 나가 잘리지 않게)
                     ctx.draw(Text(Self.label(k)).font(.system(size: 9, weight: .medium).monospacedDigit()).foregroundStyle(.secondary),
-                             at: CGPoint(x: px + 3, y: size.height - 8), anchor: .bottomLeading)
+                             at: CGPoint(x: px + 3, y: 1), anchor: .topLeading)
                 }
                 k += minor
             }
@@ -285,15 +286,18 @@ private struct ClipBlock: View {
 
     private var audioLane: some View {
         let h = ClipTimeline.audioHeight
-        let peaks = model.waveforms[clip.id]
+        // 영상 전체 파형에서 이 구간 몫만 (같은 영상의 구간을 여러 번 넣어도 다시 풀지 않는다)
+        let wave = model.sourceWaves[clip.url]
+        let (span, clipFilled) = wave?.range(clip.start, clip.end) ?? (0..<0, 0)
         let gain = dragGain ?? clip.gain
         return Canvas { ctx, size in
             ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(red: 0.10, green: 0.17, blue: 0.24)))
-            if let wave = peaks, !wave.peak.isEmpty {
+            if let wave, !span.isEmpty {
                 // 한 픽셀 칸마다 그 사이 묶음들의 최댓값. 연한 색 = 순간 최댓값(peak), 진한 색 = 평균 세기(RMS)
-                let n = wave.peak.count
+                let n = span.count
+                let base = span.lowerBound
                 let cols = max(1, Int(size.width))
-                let filled = wave.done ? cols : Int(Double(cols) * wave.progress)
+                let filled = Int(Double(cols) * clipFilled)
                 // 진폭의 제곱근 눈금: dB 눈금은 방송 소리가 늘 꽉 차 보이고, 그냥 진폭은 대사가 너무 작게 보인다
                 let amp = pow(10, gain / 20)
                 func bar(_ v: Float) -> CGFloat {
@@ -301,8 +305,8 @@ private struct ClipBlock: View {
                 }
                 var peakPath = Path(), rmsPath = Path()
                 for c in 0..<filled {
-                    let a = c * n / cols
-                    let b = min(n, max(a + 1, (c + 1) * n / cols))
+                    let a = base + c * n / cols
+                    let b = base + min(n, max(c * n / cols + 1, (c + 1) * n / cols))
                     var p: Float = 0, r: Float = 0
                     for k in a..<b {
                         if wave.peak[k] > p { p = wave.peak[k] }
@@ -323,7 +327,7 @@ private struct ClipBlock: View {
         .frame(width: width, height: h)
         .overlay {
             // 아직 거의 못 채웠으면 돌아가는 표시 (NAS 의 긴 구간은 수십 초 걸린다)
-            if peaks.map({ !$0.done && $0.progress < 0.03 }) ?? true { ProgressView().controlSize(.mini) }
+            if wave?.done != true && clipFilled < 0.03 { ProgressView().controlSize(.mini) }
         }
         .overlay(alignment: .topTrailing) {
             if dragGain != nil || clip.gain != 0 {

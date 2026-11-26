@@ -13,8 +13,10 @@ final class AppModel {
     var clips: [Clip] = []
     /// 타임라인 영상 줄 그림 (구간마다)
     var laneImages: [Clip.ID: [CGImage?]] = [:]
-    /// 타임라인 소리 줄 파형 (구간마다)
-    var waveforms: [Clip.ID: WavePeaks] = [:]
+    // MARK: 왼쪽 사이드바: 불러온 영상
+    var sources: [Source] = []
+    /// 영상 전체 파형 (영상마다 한 번). 타임라인 구간은 이 중 제 범위를 잘라 그린다
+    var sourceWaves: [URL: WavePeaks] = [:]
     /// 인코딩 설정 (화면 아래. 아직 변환 기능 없음)
     var encode = EncodeSettings()
     /// 타임라인에서 고른 구간. 고르면 그 원본과 범위를 연다
@@ -69,6 +71,53 @@ final class AppModel {
 
     // MARK: - 영상 열기
 
+    /// 사이드바에서 영상을 누름: 구간 없이(전체 범위) 그 영상을 연다
+    func openSource(_ source: Source) {
+        selectedClipID = nil
+        if source.url == url && duration > 0 {
+            if isPlaying { pause() }
+            inPoint = 0
+            outPoint = duration
+            seek(0)
+        } else {
+            open(source.url)
+        }
+    }
+
+    /// 사이드바에서 빼기 (타임라인에 이 영상 구간이 있으면 못 뺀다)
+    func removeSource(_ source: Source) {
+        guard !clips.contains(where: { $0.url == source.url }) else { return }
+        sources.removeAll { $0.id == source.id }
+        sourceWaves[source.url] = nil
+        if url == source.url { newSource() }
+    }
+
+    func sourceInUse(_ source: Source) -> Bool { clips.contains { $0.url == source.url } }
+
+    /// 처음 연 영상이면 사이드바에 넣는다
+    private func addSource(_ url: URL) {
+        if !sources.contains(where: { $0.url == url }) { sources.append(Source(url: url)) }
+    }
+
+    /// 영상 길이를 알게 되면: 사이드바 썸네일 + 영상 전체 파형 (한 번만)
+    private func sourceOpened(_ url: URL, duration: Double) {
+        guard let i = sources.firstIndex(where: { $0.url == url }) else { return }
+        sources[i].duration = duration
+        if sources[i].thumbnail == nil, let thumbnailer {
+            thumbnailer.image(at: min(duration * 0.1, 60), height: 240) { [weak self] image in
+                guard let self, let i = self.sources.firstIndex(where: { $0.url == url }) else { return }
+                self.sources[i].thumbnail = image
+            }
+        }
+        guard sourceWaves[url] == nil, duration > 0 else { return }
+        sourceWaves[url] = WavePeaks(peak: [], rms: [], done: false, progress: 0, duration: duration)
+        Waveform.make(url: url, start: 0, end: duration) { [weak self] peaks in
+            guard let self, self.sources.contains(where: { $0.url == url }) else { return false }
+            if let peaks { self.sourceWaves[url] = peaks }
+            return true
+        }
+    }
+
     /// 새 영상을 연다 (타임라인 선택은 풂: 이제부터 자르는 건 새 구간)
     func openNew(_ url: URL) {
         selectedClipID = nil
@@ -107,6 +156,7 @@ final class AppModel {
         stopTimer()
         isPlaying = false
         self.url = url
+        addSource(url)
         openError = nil
         position = range?.0 ?? 0
         duration = 0
@@ -140,6 +190,7 @@ final class AppModel {
             self.rotation = engine.rotation
             self.duration = engine.duration
             self.frameDuration = engine.frameDuration
+            self.sourceOpened(url, duration: engine.duration)
             if let r = self.pendingRange {
                 self.inPoint = max(0, min(r.0, engine.duration))
                 self.outPoint = max(self.inPoint, min(r.1, engine.duration))
@@ -188,7 +239,6 @@ final class AppModel {
         guard let url, outPoint > inPoint else { return }
         let clip = Clip(url: url, start: inPoint, end: outPoint)
         clips.append(clip)
-        makeWaveform(for: clip.id)
         selectedClipID = nil
     }
 
@@ -200,13 +250,12 @@ final class AppModel {
         clips[i].start = inPoint
         clips[i].end = outPoint
         laneKeys[id] = nil  // 영상 줄 그림은 타임라인이 다시 부른다
-        makeWaveform(for: id)
     }
 
     func delete(_ ids: Set<Clip.ID>) {
         clips.removeAll { ids.contains($0.id) }
         for id in ids {
-            laneImages[id] = nil; laneMakers[id] = nil; laneKeys[id] = nil; waveforms[id] = nil
+            laneImages[id] = nil; laneMakers[id] = nil; laneKeys[id] = nil
         }
         if let id = selectedClipID, ids.contains(id) { selectedClipID = nil }
     }
@@ -244,18 +293,6 @@ final class AppModel {
             guard let self, self.laneKeys[id] == key, var images = self.laneImages[id], i < images.count else { return }
             images[i] = image
             self.laneImages[id] = images
-        }
-    }
-
-    private func makeWaveform(for id: Clip.ID) {
-        guard let clip = clips.first(where: { $0.id == id }) else { return }
-        waveforms[id] = nil
-        Waveform.make(url: clip.url, start: clip.start, end: clip.end) { [weak self] peaks in
-            // 구간이 지워졌거나 범위가 바뀌었으면 그만 만든다
-            guard let self, let now = self.clips.first(where: { $0.id == id }),
-                  now.url == clip.url, now.start == clip.start, now.end == clip.end else { return false }
-            if let peaks { self.waveforms[id] = peaks }
-            return true
         }
     }
 

@@ -13,13 +13,25 @@ struct WavePeaks: Equatable {
     var done: Bool
     /// 어디까지 채웠는지 (0~1)
     var progress: Double
+    /// 파형이 덮는 길이 (초, 0 부터)
+    var duration: Double
+
+    /// 영상 안 [start, end) 에 해당하는 묶음 범위와, 그 구간 중 채워진 비율
+    func range(_ start: Double, _ end: Double) -> (Range<Int>, Double) {
+        guard duration > 0, !peak.isEmpty else { return (0..<0, 0) }
+        let n = Double(peak.count)
+        let a = max(0, min(peak.count, Int(start / duration * n)))
+        let b = max(a, min(peak.count, Int((end / duration * n).rounded(.up))))
+        let filled = done ? 1 : max(0, min(1, (progress * duration - start) / max(0.001, end - start)))
+        return (a..<b, filled)
+    }
 }
 
 enum Waveform {
     private static let limit = DispatchSemaphore(value: 2)
 
-    /// 묶음 수: 초당 25개 (긴 구간은 최대 20000개)
-    static func bucketCount(for length: Double) -> Int { min(20000, max(200, Int(length * 25))) }
+    /// 묶음 수: 초당 25개 (3시간 넘으면 줄임). 영상 전체를 한 번 만들어 두고 구간은 잘라 쓰므로 촘촘하게
+    static func bucketCount(for length: Double) -> Int { min(270_000, max(200, Int(length * 25))) }
 
     /// update 는 중간 결과와 마지막 결과(done = true)를 메인 스레드로 여러 번 받는다. false 를 돌려주면 그만 만든다
     static func make(url: URL, start: Double, end: Double, update: @escaping (WavePeaks?) -> Bool) {
@@ -45,7 +57,7 @@ enum Waveform {
         let index = av_find_best_stream(ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nil, 0)
         guard index >= 0, let st = ctx.pointee.streams[Int(index)], let par = st.pointee.codecpar,
               let codec = avcodec_find_decoder(par.pointee.codec_id) else {
-            return WavePeaks(peak: [], rms: [], done: true, progress: 1)  // 소리 없음 = 빈 파형
+            return WavePeaks(peak: [], rms: [], done: true, progress: 1, duration: length)  // 소리 없음 = 빈 파형
         }
         // 소리 스트림만 읽게 나머지는 버린다
         for i in 0..<Int(ctx.pointee.nb_streams) where i != Int(index) {
@@ -70,7 +82,7 @@ enum Waveform {
         func snapshot(done: Bool) -> WavePeaks {
             let rms = (0..<count).map { samples[$0] > 0 ? Float((squares[$0] / Double(samples[$0])).squareRoot()) : 0 }
             return WavePeaks(peak: peaks.map { min(1, $0) }, rms: rms.map { min(1, $0) }, done: done,
-                             progress: done ? 1 : max(0, min(1, (lastTime - start) / length)))
+                             progress: done ? 1 : max(0, min(1, (lastTime - start) / length)), duration: length)
         }
         var lastSent = CACurrentMediaTime()
         var pkt = av_packet_alloc()
@@ -130,7 +142,7 @@ enum Waveform {
             guard pkt!.pointee.stream_index == index else { continue }
             guard avcodec_send_packet(c, pkt) >= 0 else { continue }
             while !done, avcodec_receive_frame(c, frame) == 0 { take(frame!) }
-            if CACurrentMediaTime() - lastSent > 0.3 {
+            if CACurrentMediaTime() - lastSent > 0.5 {
                 lastSent = CACurrentMediaTime()
                 if !partial(snapshot(done: false)) { return nil }
             }

@@ -84,9 +84,6 @@ struct EncodeSettingsView: View {
                     ForEach(EncodeSettings.Container.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Picker("구간", selection: s.grouping) {
-                    ForEach(EncodeSettings.Grouping.allCases) { Text($0.rawValue).tag($0) }
-                }
                 Toggle("자막 포함", isOn: s.keepSubtitles)
                 Toggle("제목 태그 유지", isOn: s.keepMetadata)
             }
@@ -95,16 +92,24 @@ struct EncodeSettingsView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { convertBar }
     }
 
+    /// 맨 아래 고정: 구간 묶기(위 설정 일부가 이것에 따라 켜지고 꺼짐) + 영상 변환하기
     private var convertBar: some View {
-        let total = model.clips.reduce(0) { $0 + $1.length }
-        return VStack(alignment: .leading, spacing: 8) {
-            Text(model.clips.isEmpty
-                 ? "자른 구간이 없습니다"
-                 : "구간 \(model.clips.count)개 · \(FF.clock(total)) → \(e.container.rawValue) \(e.grouping == .joined ? 1 : model.clips.count)개")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+        VStack(alignment: .leading, spacing: 8) {
+            if model.clips.isEmpty {
+                Text("자른 구간이 없습니다")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Text("구간 (\(model.clips.count)개)")
+                    Spacer()
+                    Picker("구간", selection: s.grouping) {
+                        ForEach(EncodeSettings.Grouping.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
             Button {
                 // 변환 기능은 아직 없다 (설정 화면 먼저)
             } label: {

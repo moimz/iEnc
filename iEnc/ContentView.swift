@@ -2,7 +2,7 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 창: 본문 [미리보기 | 영상 정보] / 구간 선택 바 / 타임라인(자른 구간) + 오른쪽 사이드바(인코딩 설정, 본문을 줄임)
+/// 창: 왼쪽 사이드바(불러온 영상) · 본문 [미리보기 | 영상 정보] / 구간 선택 바 / 타임라인(자른 구간) · 오른쪽 사이드바(인코딩 설정)
 struct ContentView: View {
     @State private var model = AppModel()
     @FocusState private var focused: Bool
@@ -11,6 +11,16 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
+        NavigationSplitView {
+            SourceSidebar(model: model)
+                .navigationSplitViewColumnWidth(min: 170, ideal: 210, max: 300)
+        } detail: {
+            detail
+        }
+        .navigationTitle(model.url?.lastPathComponent ?? "iEnc")
+    }
+
+    private var detail: some View {
         // 본문 최소 800
         EditorPane(model: model)
             .frame(minWidth: 800)
@@ -46,7 +56,6 @@ struct ContentView: View {
             .onDeleteCommand {
                 if let id = model.selectedClipID { model.delete([id]) }
             }
-        .navigationTitle(model.url?.lastPathComponent ?? "iEnc")
         .onChange(of: hardware) { model.hardware = hardware }
         .onAppear {
             focused = true
@@ -207,6 +216,85 @@ struct CutActions: View {
             }
         }
         .disabled(model.duration <= 0)
+    }
+}
+
+/// 왼쪽 사이드바: 한 번이라도 불러온 영상. 누르면 구간 없이 그 영상이 열린다.
+/// 지금 위에 열린 영상(타임라인에서 구간을 골랐으면 그 구간의 영상)은 노란 테두리
+struct SourceSidebar: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(model.sources) { source in
+                    SourceRow(source: source, current: source.url == model.url,
+                              clipCount: model.clips.filter { $0.url == source.url }.count)
+                        .contentShape(Rectangle())
+                        .onTapGesture { model.openSource(source) }
+                        .contextMenu {
+                            Button("목록에서 빼기") { model.removeSource(source) }
+                                .disabled(model.sourceInUse(source))
+                        }
+                }
+            }
+            .padding(10)
+        }
+        .overlay {
+            if model.sources.isEmpty {
+                Text("불러온 영상이 여기에 쌓입니다")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding()
+            }
+        }
+    }
+}
+
+/// 불러온 영상 한 줄: 16:10 썸네일(길이) + 파일 이름 + 자른 구간 수
+private struct SourceRow: View {
+    let source: Source
+    let current: Bool
+    let clipCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Color.black
+                .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    if let image = source.thumbnail {
+                        Image(decorative: image, scale: 2).resizable().aspectRatio(contentMode: .fill)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if source.duration > 0 {
+                        Text(FF.clock(source.duration))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 3))
+                            .foregroundStyle(.white)
+                            .padding(4)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay {
+                    if current {
+                        RoundedRectangle(cornerRadius: 7).strokeBorder(Color.yellow, lineWidth: 3).padding(-2)
+                    }
+                }
+            Text(source.url.lastPathComponent)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(clipCount > 0 ? "구간 \(clipCount)개" : "구간 없음")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
