@@ -291,12 +291,12 @@ struct AudioTrackButton: View {
             Label("오디오 트랙 설정", systemImage: included.isEmpty ? "speaker.slash" : "speaker.wave.2")
                 .lineLimit(1)
         }
-        .help("미리보기로 들을 소리 트랙과, 자를 구간에 넣을 소리 트랙을 고릅니다")
+        .help("미리보기로 들을 오디오 트랙과, 구간에 넣을 오디오 트랙을 고릅니다")
         .popover(isPresented: $shown, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
                 if tracks.count > 1 {
-                    Text("미리보기로 듣기").font(.subheadline.weight(.semibold))
-                    Picker("미리보기로 듣기", selection: Binding(get: { model.listenTrack }, set: { model.listen($0) })) {
+                    Text("미리보기").font(.subheadline.weight(.semibold))
+                    Picker("미리보기", selection: Binding(get: { model.listenTrack }, set: { model.listen($0) })) {
                         ForEach(tracks.indices, id: \.self) { i in Text(tracks[i].label(i + 1)).tag(i) }
                     }
                     .pickerStyle(.radioGroup)
@@ -304,7 +304,7 @@ struct AudioTrackButton: View {
                     Divider().padding(.vertical, 2)
                 }
                 HStack {
-                    Text(model.selectedClip != nil ? "이 구간에 넣을 소리" : "자를 구간에 넣을 소리").font(.subheadline.weight(.semibold))
+                    Text("구간").font(.subheadline.weight(.semibold))
                     Spacer()
                     if tracks.count > 1 {
                         Button("모두") { model.cutTracks = nil }.controlSize(.small)
@@ -315,7 +315,7 @@ struct AudioTrackButton: View {
                     Toggle(tracks[i].label(i + 1), isOn: Binding(get: { included.contains(i) }, set: { _ in model.toggleCutTrack(i) }))
                         .toggleStyle(.checkbox)
                 }
-                Text(model.selectedClip != nil ? "바꾸면 구간 적용을 눌러야 이 구간에 들어갑니다." : "여러 개를 고르면 변환한 파일에 소리 트랙이 그만큼 들어갑니다.")
+                Text(model.selectedClip != nil ? "바꾸면 구간 적용을 눌러야 이 구간에 들어갑니다." : "여러 개를 고르면 변환한 파일에 오디오 트랙이 그만큼 들어갑니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

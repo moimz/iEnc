@@ -202,7 +202,7 @@ private struct ClipBlock: View {
             let tracks = model.metas[clip.url]?.audioTracks ?? []
             if !tracks.isEmpty {
                 Divider()
-                Menu("소리 트랙") {
+                Menu("오디오 트랙") {
                     if tracks.count > 1 {
                         Toggle("모두", isOn: Binding(get: { clip.audioTracks == nil }, set: { _ in model.setClipTracks(clip.id, toggle: nil) }))
                     }
