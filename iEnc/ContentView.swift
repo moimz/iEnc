@@ -2,11 +2,10 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 창: 왼쪽 사이드바(자른 구간) · 가운데 미리보기 + 구간 선택 바 + 인코딩 설정 · 오른쪽 영상 정보(덮는 패널)
+/// 창: 왼쪽 사이드바(자른 구간) · 오른쪽 [미리보기 | 영상 정보] / 구간 선택 바 / 인코딩 설정
 struct ContentView: View {
     @State private var model = AppModel()
     @FocusState private var focused: Bool
-    @AppStorage("showInfo") private var showInfo = false
     @AppStorage("hardwareDecoding") private var hardware = false
 
     var body: some View {
@@ -15,17 +14,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
         } detail: {
             EditorPane(model: model)
-                .frame(minWidth: 560)
-                .sidePanel(isPresented: $showInfo, width: 360) { InfoPanel(model: model) }
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button { showInfo.toggle() } label: {
-                            Label("영상 정보", systemImage: "info.circle")
-                        }
-                        .keyboardShortcut("i", modifiers: .command)
-                        .help("영상 정보 (⌘I)")
-                    }
-                }
+                .frame(minWidth: 640)
             .focusable()
             .focusEffectDisabled()
             .focused($focused)
@@ -68,7 +57,8 @@ struct ContentView: View {
     }
 }
 
-/// 미리보기 + 구간 선택 바 + 자르기 단추. 영상이 없으면 불러오기 안내
+/// [미리보기 | 영상 정보] + 구간 선택 바 + 자르기 단추 + 인코딩 설정. 영상이 없으면 불러오기 안내.
+/// 영상 정보는 미리보기 옆에 둔다 (미리보기는 좌우 레터박스가 많이 남아서 그 자리를 쓴다)
 struct EditorPane: View {
     @Bindable var model: AppModel
     @State private var dropping = false
@@ -76,6 +66,31 @@ struct EditorPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            HSplitView {
+                preview
+                    .frame(minWidth: 320)
+                InfoPanel(model: model)
+                    .frame(minWidth: 240, idealWidth: 320, maxWidth: 520)
+            }
+            .frame(minHeight: 260)
+
+            if model.url != nil {
+                TrimBar(model: model)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .disabled(model.duration <= 0)
+                CutActions(model: model)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+            }
+            EncodeSettingsArea()
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
+            if case .success(let url) = result { model.openNew(url) }
+        }
+    }
+
+    private var preview: some View {
             ZStack {
                 VideoLayerView(layer: model.displayLayer, rotation: model.rotation)
                 if model.url == nil {
@@ -103,7 +118,6 @@ struct EditorPane: View {
                         .padding(6)
                 }
             }
-            .frame(minHeight: 260)
             .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
                 guard let provider = providers.first else { return false }
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -111,21 +125,6 @@ struct EditorPane: View {
                 }
                 return true
             }
-
-            if model.url != nil {
-                TrimBar(model: model)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .disabled(model.duration <= 0)
-                CutActions(model: model)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
-            }
-            EncodeSettingsArea()
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
-            if case .success(let url) = result { model.openNew(url) }
-        }
     }
 }
 
@@ -315,26 +314,6 @@ struct InfoPanel: View {
         rows.append(("재생", s.playback))
         for (i, e) in s.errors.enumerated() { rows.append(("오류 \(i + 1)", e)) }
         return rows
-    }
-}
-
-extension View {
-    /// 오른쪽 옆 패널: 본문 폭은 그대로 두고 위에 덮어 띄운다 (iRayer 의 설정 패널과 같은 방식)
-    func sidePanel<Content: View>(isPresented: Binding<Bool>, width: CGFloat, @ViewBuilder content: @escaping () -> Content) -> some View {
-        overlay(alignment: .trailing) {
-            if isPresented.wrappedValue {
-                content()
-                    .frame(width: width)
-                    .frame(maxHeight: .infinity)
-                    .background(.background)
-                    // 왼쪽 가장자리 세로 구분선 (Divider 는 겹쳐 놓으면 가로줄이 된다)
-                    .overlay(alignment: .leading) { Rectangle().fill(.separator).frame(width: 1) }
-                    .shadow(color: .black.opacity(0.15), radius: 12, x: -2)
-                    .transition(.move(edge: .trailing))
-            }
-        }
-        .clipped()
-        .animation(.easeInOut(duration: 0.2), value: isPresented.wrappedValue)
     }
 }
 
