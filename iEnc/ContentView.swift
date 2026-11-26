@@ -105,6 +105,7 @@ struct ContentView: View {
                     }
                     model.encode.videoCodec = .copy
                     if args.contains("-joined") { model.encode.grouping = .joined }
+                    if args.contains("-bitrate") { model.encode.videoCodec = .hevc; model.encode.rateMode = .bitrate }
                 }
             }
             if args.contains("-subdemo") {

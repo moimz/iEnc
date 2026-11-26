@@ -47,7 +47,7 @@ struct SubtitleSections: View {
             Toggle("자막 포함", isOn: d.enabled)
             if model.subtitle.enabled {
                 if model.clips.isEmpty {
-                    Text("자른 구간이 없습니다").foregroundStyle(.secondary)
+                    Text("변환할 구간이 없습니다").foregroundStyle(.secondary)
                 }
                 ForEach(Array(model.clips.enumerated()), id: \.element.id) { i, clip in
                     DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(clip.id) },

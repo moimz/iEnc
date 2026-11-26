@@ -22,7 +22,7 @@ struct EncodeSettingsView: View {
 
     var body: some View {
         Form {
-            Section("영상") {
+            Section("비디오") {
                 Picker(selection: s.videoCodec) {
                     ForEach(codecs) { c in
                         // 원본 그대로: 한 파일로 합치는데 구간끼리 형식이 다르면 고를 수 없음
@@ -39,26 +39,29 @@ struct EncodeSettingsView: View {
                 Group {
                     Picker(selection: s.rateMode) {
                         ForEach(EncodeSettings.RateMode.allCases) { Text($0.rawValue).tag($0) }
-                    } label: { InfoLabel("화질", Info.rateMode) }
+                    } label: { InfoLabel("압축 기준", Info.rateMode) }
                     if e.rateMode == .quality && e.videoCodec.isSoftware {
                         LabeledContent {
                             HStack {
                                 // 왼쪽이 화질 좋음(작은 CRF) — 하드웨어 품질 막대와 방향을 맞추려고 뒤집어 보인다
-                                Slider(value: Binding(get: { 50 - e.crf }, set: { model.encode.crf = 50 - $0 }), in: 15...36, step: 1)
+                                Slider(value: Binding(get: { 50 - e.crf }, set: { model.encode.crf = 50 - $0.rounded() }), in: 15...36)  // step 을 주면 막대 아래 눈금이 생겨 뺐다
                                 Text("\(Int(e.crf))").monospacedDigit().frame(width: 26, alignment: .trailing)
                             }
                         } label: { InfoLabel("화질 (CRF)", Info.crf) }
                     } else if e.rateMode == .quality {
                         LabeledContent {
                             HStack {
-                                Slider(value: s.quality, in: 1...100, step: 1)
+                                Slider(value: Binding(get: { e.quality }, set: { model.encode.quality = $0.rounded() }), in: 1...100)
                                 Text("\(Int(e.quality))").monospacedDigit().frame(width: 26, alignment: .trailing)
                             }
                         } label: { InfoLabel("품질", Info.quality) }
                     } else {
                         LabeledContent {
                             HStack(spacing: 4) {
-                                TextField("Mbps", value: s.bitrate, format: .number)
+                                // 제목을 주면 Form 이 그걸 라벨로 그려 칸이 깨진다 → 빈 제목 + 안내 글자(prompt)
+                                TextField("", value: s.bitrate, format: .number, prompt: Text("6"))
+                                    .labelsHidden()
+                                    .textFieldStyle(.roundedBorder)
                                     .multilineTextAlignment(.trailing)
                                     .frame(width: 60)
                                 Text("Mbps")
@@ -72,11 +75,10 @@ struct EncodeSettingsView: View {
                         }
                     }
                     .help("원본: 구간마다 제 해상도 (한 파일로 합칠 땐 가장 큰 것에 맞춤)")
-                    Picker("비율이 다르면", selection: s.fit) {
+                    Picker(selection: s.fit) {
                         ForEach(EncodeSettings.Fit.allCases) { Text($0.rawValue).tag($0) }
-                    }
+                    } label: { InfoLabel("다중 해상도 처리", Info.fit) }
                     .disabled(e.grouping != .joined)
-                    .help("가로세로 비율이 다른 구간을 한 파일로 합칠 때만: 비율을 지켜 검은 여백을 넣거나, 꽉 채우고 넘치는 가장자리를 자릅니다")
                     Picker("프레임률", selection: s.frameRate) {
                         ForEach(EncodeSettings.FrameRate.allCases) { Text($0.label).tag($0) }
                     }
@@ -88,7 +90,7 @@ struct EncodeSettingsView: View {
                 }
                 .disabled(copyVideo)
             }
-            Section("소리") {
+            Section("오디오") {
                 Picker("코덱", selection: s.audioCodec) {
                     ForEach(EncodeSettings.AudioCodec.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -99,8 +101,7 @@ struct EncodeSettingsView: View {
                     Picker("채널", selection: s.channels) {
                         ForEach(EncodeSettings.Channels.allCases) { Text($0.rawValue).tag($0) }
                     }
-                    Toggle("소리 크기 고르게", isOn: s.normalizeLoudness)
-                        .help("구간마다 소리 크기가 달라도 비슷하게 맞춥니다 (loudnorm). 타임라인에서 구간별로 맞춘 음량과 따로 적용")
+                    Toggle(isOn: s.normalizeLoudness) { InfoLabel("음량 균일화", Info.loudness) }
                 }
                 .disabled(!aac)
             }
@@ -130,7 +131,7 @@ struct EncodeSettingsView: View {
             if let job = model.job {
                 JobStatus(job: job, model: model)
             } else if model.clips.isEmpty {
-                Text("자른 구간이 없습니다")
+                Text("변환할 구간이 없습니다")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
@@ -279,7 +280,8 @@ private struct InfoLabel: View {
             .buttonStyle(.plain)
             .help("설명 보기")
             .popover(isPresented: $shown, arrowEdge: .leading) {
-                Text(.init(text))
+                // "1~100" 처럼 물결표가 둘이면 마크다운이 그 사이를 취소선으로 그린다 → 물결표는 글자 그대로
+                Text(.init(text.replacingOccurrences(of: "~", with: "\\~")))
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: 300, alignment: .leading)
@@ -311,6 +313,25 @@ private enum Info {
     · 압축률 우선: 오래 걸리는 대신 같은 화질을 더 작은 파일로
 
     CPU 를 얼마나 쓰느냐가 아닙니다 (그건 설정 › CPU 사용량). 예: 720p 2분 영상, x265 속도 우선 약 20초 · 균형 약 30초.
+    """
+
+    static let fit = """
+    **해상도·비율이 다른 구간을 한 파일로 합칠 때** 어떻게 맞출지 정합니다. "모든 구간을 한 파일로"일 때만 씁니다.
+
+    출력 화면의 가로세로 비율은 **첫 구간의 비율**을 따릅니다. 크기는 해상도 설정을 따릅니다.
+
+    · **비율 유지 (검은 여백)**: 구간 화면을 자르지 않고 줄이거나 늘려 넣고, 남는 곳은 검은 여백으로 채웁니다.
+    · **꽉 채우기 (가장자리 자름)**: 화면을 꽉 채우고 넘치는 가장자리를 잘라 냅니다.
+
+    구간마다 파일 하나로 만들 땐 구간마다 원래 비율을 그대로 지킵니다 (해상도를 1080p 로 하면 4:3 영상은 1440×1080).
+    """
+
+    static let loudness = """
+    **구간마다 다른 소리 크기를 비슷하게 맞춥니다** (방송 기준 음량, ffmpeg loudnorm).
+
+    여러 영상에서 자른 구간을 이어 볼 때 어떤 곳은 크고 어떤 곳은 작은 걸 줄여 줍니다. 타임라인에서 구간마다 맞춘 음량(dB)을 먼저 적용한 뒤 맞춥니다.
+
+    AAC 로 다시 압축할 때만 됩니다.
     """
 
     static let rateMode = """
