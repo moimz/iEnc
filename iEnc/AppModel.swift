@@ -124,7 +124,7 @@ final class AppModel {
         open(url)
     }
 
-    /// 타임라인 + : 빈 상태로
+    /// 빈 상태로 (지금 연 영상을 목록에서 뺄 때)
     func newSource() {
         selectedClipID = nil
         closeSource()

@@ -35,7 +35,7 @@ struct ClipTimeline: View {
                             ForEach(Array(model.clips.enumerated()), id: \.element.id) { i, clip in
                                 ClipBlock(model: model, clip: clip, width: widths[i])
                             }
-                            addTile
+                            endDropZone
                         }
                     }
                     .padding(.horizontal, 12)
@@ -95,33 +95,16 @@ struct ClipTimeline: View {
         .disabled(model.clips.isEmpty)
     }
 
-    /// 맨 끝 + : 빈 화면으로 가서 새 영상을 연다. 구간을 고르지 않은(새 영상·빈 화면) 상태면 강조
-    private var addTile: some View {
-        let emphasized = model.selectedClipID == nil
-        return Button { model.newSource() } label: {
-            VStack(spacing: 4) {
-                Image(systemName: "plus").font(.system(size: 18, weight: .semibold))
-                Text("영상 추가").font(.caption2)
-            }
+    /// 맨 끝 빈 자리: 구간을 여기에 끌어 놓으면 맨 뒤로
+    private var endDropZone: some View {
+        Color.clear
             .frame(width: addWidth, height: Self.videoHeight + Self.audioHeight + 2)
-            .foregroundStyle(emphasized ? Color.white : Color.secondary)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(emphasized ? Color.accentColor.opacity(0.85) : Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(emphasized ? Color.accentColor : Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 1.5, dash: emphasized ? [] : [4, 3]))
-            )
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("빈 화면에서 새 영상을 불러옵니다")
-        .dropDestination(for: String.self) { items, _ in
-            guard let id = items.first.flatMap(UUID.init(uuidString:)) else { return false }
-            model.moveClip(id, before: nil)
-            return true
-        }
+            .dropDestination(for: String.self) { items, _ in
+                guard let id = items.first.flatMap(UUID.init(uuidString:)) else { return false }
+                model.moveClip(id, before: nil)
+                return true
+            }
     }
 }
 

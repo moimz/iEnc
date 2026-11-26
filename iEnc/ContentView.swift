@@ -223,8 +223,28 @@ struct CutActions: View {
 /// 지금 위에 열린 영상(타임라인에서 구간을 골랐으면 그 구간의 영상)은 노란 테두리
 struct SourceSidebar: View {
     @Bindable var model: AppModel
+    @State private var importing = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            list
+            // 목록 아래 따로 (목록을 가리지 않게). 누르면 바로 파일을 고른다
+            Divider()
+            Button { importing = true } label: {
+                Label("영상 추가", systemImage: "plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .padding(10)
+            .keyboardShortcut("o", modifiers: .command)
+            .help("영상을 불러옵니다 (⌘O)")
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
+            if case .success(let url) = result { model.openNew(url) }
+        }
+    }
+
+    private var list: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 ForEach(model.sources) { source in
