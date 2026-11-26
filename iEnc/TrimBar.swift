@@ -16,29 +16,33 @@ struct TrimBar: View {
 
     var body: some View {
         GeometryReader { geo in
-            let stripX = playWidth + 8
-            let stripW = max(1, geo.size.width - stripX - 8)
+            // 바 안 손잡이 영역의 왼쪽 끝 (바 왼쪽 여백 8 + 재생 단추 + 사이 8)
+            let trimX = playWidth + 8
+            let trimW = max(handleWidth * 2 + 1, geo.size.width - trimX - 8)
             VStack(spacing: 6) {
-                nudge(time: model.inPoint, anchor: stripX + x(model.inPoint, stripW), total: geo.size.width) { model.setIn(model.inPoint + $0) }
-                bar(stripW: stripW)
-                nudge(time: model.outPoint, anchor: stripX + x(model.outPoint, stripW), total: geo.size.width) { model.setOut(model.outPoint + $0) }
+                nudge(time: model.inPoint, anchor: trimX + x(model.inPoint, trimW), total: geo.size.width) { model.setIn(model.inPoint + $0) }
+                bar(trimW: trimW)
+                nudge(time: model.outPoint, anchor: trimX + x(model.outPoint, trimW), total: geo.size.width) { model.setOut(model.outPoint + $0) }
             }
         }
         .frame(height: nudgeHeight * 2 + barHeight + 12 + 12)  // 위아래 시각 줄 + 바(위아래 여백 6씩) + 줄 사이 6씩
     }
 
-    private func x(_ t: Double, _ width: CGFloat) -> CGFloat {
-        guard model.duration > 0 else { return 0 }
-        return CGFloat(max(0, min(1, t / model.duration))) * width
+    /// 손잡이 영역(폭 trimW) 안에서 시각 t 의 x. 필름 띠는 양쪽 손잡이 폭만큼 안쪽에 있다
+    private func x(_ t: Double, _ trimW: CGFloat) -> CGFloat {
+        let w = trimW - handleWidth * 2
+        guard model.duration > 0 else { return handleWidth }
+        return handleWidth + CGFloat(max(0, min(1, t / model.duration))) * w
     }
 
-    private func time(_ x: CGFloat, _ width: CGFloat) -> Double {
-        Double(max(0, min(1, x / width))) * model.duration
+    private func time(_ x: CGFloat, _ trimW: CGFloat) -> Double {
+        let w = max(1, trimW - handleWidth * 2)
+        return Double(max(0, min(1, (x - handleWidth) / w))) * model.duration
     }
 
     // MARK: - 바
 
-    private func bar(stripW: CGFloat) -> some View {
+    private func bar(trimW: CGFloat) -> some View {
         HStack(spacing: 8) {
             Button { model.togglePlay() } label: {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
@@ -50,7 +54,7 @@ struct TrimBar: View {
             .foregroundStyle(.white)
             .help("구간 재생·멈춤 (스페이스)")
 
-            strip(width: stripW)
+            trimArea(width: trimW)
         }
         .padding(.leading, 8)
         .padding(.trailing, 8)
@@ -59,15 +63,17 @@ struct TrimBar: View {
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.08)))
     }
 
-    private func strip(width: CGFloat) -> some View {
+    /// 손잡이까지 들어가는 영역: [손잡이 폭][필름 띠][손잡이 폭]. 손잡이가 이 틀 밖으로 삐져나가지 않게 한다
+    private func trimArea(width trimW: CGFloat) -> some View {
         let h = barHeight - 2 * border
+        let w = trimW - handleWidth * 2
         let thumbW = h * 16 / 9
-        let count = max(1, Int((width / thumbW).rounded(.up)))
-        let xIn = x(model.inPoint, width)
-        let xOut = x(model.outPoint, width)
-        let xPos = x(model.position, width)
+        let count = max(1, Int((w / thumbW).rounded(.up)))
+        let xIn = x(model.inPoint, trimW)
+        let xOut = x(model.outPoint, trimW)
+        let xPos = x(model.position, trimW)
         return ZStack(alignment: .topLeading) {
-            // 필름 띠
+            // 필름 띠: 누르거나 끌면 그 자리를 보여 준다 (이 띠에만 붙여서 손잡이 끌기와 다투지 않게)
             HStack(spacing: 0) {
                 ForEach(0..<count, id: \.self) { i in
                     let image = i < model.strip.count ? model.strip[i] : nil
@@ -79,26 +85,37 @@ struct TrimBar: View {
                                 .aspectRatio(contentMode: .fill)
                         }
                     }
-                    .frame(width: width / CGFloat(count), height: h)
+                    .frame(width: w / CGFloat(count), height: h)
                     .clipped()
                 }
             }
-            .frame(width: width, height: h)
+            .frame(width: w, height: h)
             .clipShape(RoundedRectangle(cornerRadius: 4))
-            .offset(y: border)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named("trim"))
+                    .onChanged { v in
+                        model.isScrubbing = true
+                        model.seek(time(v.location.x, trimW))
+                    }
+                    .onEnded { _ in model.isScrubbing = false }
+            )
+            .offset(x: handleWidth, y: border)
 
             // 구간 밖 흐리게
             Color.black.opacity(0.55)
-                .frame(width: max(0, xIn), height: h)
-                .offset(y: border)
+                .frame(width: max(0, xIn - handleWidth), height: h)
+                .offset(x: handleWidth, y: border)
+                .allowsHitTesting(false)
             Color.black.opacity(0.55)
-                .frame(width: max(0, width - xOut), height: h)
+                .frame(width: max(0, trimW - handleWidth - xOut), height: h)
                 .offset(x: xOut, y: border)
+                .allowsHitTesting(false)
 
-            // 노란 구간 테두리
+            // 노란 구간 테두리 (손잡이 바깥 끝까지)
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(Color.yellow, lineWidth: border)
-                .frame(width: max(handleWidth * 2, xOut - xIn + handleWidth * 2), height: barHeight)
+                .frame(width: xOut - xIn + handleWidth * 2, height: barHeight)
                 .offset(x: xIn - handleWidth)
                 .allowsHitTesting(false)
 
@@ -110,26 +127,16 @@ struct TrimBar: View {
                 .offset(x: xPos - 1, y: -3)
                 .allowsHitTesting(false)
 
-            // 손잡이
+            // 손잡이 (맨 위, 손잡이 몸통 전체가 끌기 영역)
             handle(isIn: true)
+                .highPriorityGesture(handleDrag(isIn: true, trimW: trimW))
                 .offset(x: xIn - handleWidth)
-                .gesture(handleDrag(isIn: true, width: width))
             handle(isIn: false)
+                .highPriorityGesture(handleDrag(isIn: false, trimW: trimW))
                 .offset(x: xOut)
-                .gesture(handleDrag(isIn: false, width: width))
         }
-        .frame(width: width, height: barHeight, alignment: .topLeading)
-        .contentShape(Rectangle())
-        // 띠를 누르거나 끌면 그 자리를 보여 준다
-        .gesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .named("strip"))
-                .onChanged { v in
-                    model.isScrubbing = true
-                    model.seek(time(v.location.x, width))
-                }
-                .onEnded { _ in model.isScrubbing = false }
-        )
-        .coordinateSpace(.named("strip"))
+        .frame(width: trimW, height: barHeight, alignment: .topLeading)
+        .coordinateSpace(.named("trim"))
         .onAppear { model.requestStrip(count: count, height: Int(h * 2)) }
         .onChange(of: count) { model.requestStrip(count: count, height: Int(h * 2)) }
         .onChange(of: model.duration) { model.requestStrip(count: count, height: Int(h * 2)) }
@@ -145,19 +152,19 @@ struct TrimBar: View {
         .overlay(
             Capsule().fill(Color.black.opacity(0.55)).frame(width: 2.5, height: 18)
         )
-        .contentShape(Rectangle().inset(by: -6))
+        .contentShape(Rectangle())
         .pointerStyle(.columnResize)
         .help(isIn ? "구간 시작 (I)" : "구간 끝 (O)")
     }
 
-    private func handleDrag(isIn: Bool, width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named("strip"))
+    private func handleDrag(isIn: Bool, trimW: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("trim"))
             .onChanged { v in
                 model.isScrubbing = true
                 if grabOffset == nil {
-                    grabOffset = x(isIn ? model.inPoint : model.outPoint, width) - v.startLocation.x
+                    grabOffset = x(isIn ? model.inPoint : model.outPoint, trimW) - v.startLocation.x
                 }
-                let t = time(v.location.x + (grabOffset ?? 0), width)
+                let t = time(v.location.x + (grabOffset ?? 0), trimW)
                 if isIn { model.setIn(t) } else { model.setOut(t) }
             }
             .onEnded { _ in

@@ -210,6 +210,26 @@ enum FF {
 
     static func tag(_ dict: OpaquePointer?, _ key: String) -> String? {
         guard let e = av_dict_get(dict, key, nil, 0), let v = e.pointee.value else { return nil }
-        return String(cString: v)
+        return text(v)
     }
+
+    /// 태그 글자: UTF-8 이 아니면 옛 윈도우 인코딩(한국어 CP949 · 일본어 Shift-JIS · 중국어)을 골라 푼다.
+    /// AVI 의 INFO 태그 같은 건 만든 PC 의 인코딩 그대로 들어 있어서 UTF-8 로 읽으면 깨진다.
+    static func text(_ p: UnsafePointer<CChar>) -> String {
+        let data = Data(bytes: p, count: strlen(p))
+        if let s = String(data: data, encoding: .utf8) { return s }
+        var converted: NSString?
+        var lossy: ObjCBool = false
+        let found = NSString.stringEncoding(for: data, encodingOptions: [
+            .suggestedEncodingsKey: legacyEncodings,
+            .useOnlySuggestedEncodingsKey: true,
+            .allowLossyKey: false,
+        ], convertedString: &converted, usedLossyConversion: &lossy)
+        if found != 0, let converted { return converted as String }
+        return String(cString: p)
+    }
+
+    private static let legacyEncodings: [UInt] = [
+        CFStringEncodings.dosKorean, .dosJapanese, .GB_18030_2000, .big5_HKSCS_1999,
+    ].map { CFStringConvertEncodingToNSStringEncoding(CFStringEncoding($0.rawValue)) }
 }

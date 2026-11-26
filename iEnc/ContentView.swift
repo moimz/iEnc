@@ -2,22 +2,29 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 창: 왼쪽 사이드바(자른 구간) · 가운데 미리보기 + 구간 선택 바 · 오른쪽 영상 정보
+/// 창: 왼쪽 사이드바(자른 구간) · 가운데 미리보기 + 구간 선택 바 + 인코딩 설정 · 오른쪽 영상 정보(덮는 패널)
 struct ContentView: View {
     @State private var model = AppModel()
     @FocusState private var focused: Bool
+    @AppStorage("showInfo") private var showInfo = false
 
     var body: some View {
         NavigationSplitView {
             ClipSidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
         } detail: {
-            HSplitView {
-                EditorPane(model: model)
-                    .frame(minWidth: 560)
-                InfoPanel(model: model)
-                    .frame(minWidth: 260, idealWidth: 320, maxWidth: 520)
-            }
+            EditorPane(model: model)
+                .frame(minWidth: 560)
+                .sidePanel(isPresented: $showInfo, width: 360) { InfoPanel(model: model) }
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { showInfo.toggle() } label: {
+                            Label("영상 정보", systemImage: "info.circle")
+                        }
+                        .keyboardShortcut("i", modifiers: .command)
+                        .help("영상 정보 (⌘I)")
+                    }
+                }
             .focusable()
             .focusEffectDisabled()
             .focused($focused)
@@ -25,6 +32,7 @@ struct ContentView: View {
             .onKeyPress(.leftArrow) { model.step(-1); return .handled }
             .onKeyPress(.rightArrow) { model.step(1); return .handled }
             .onKeyPress(characters: .init(charactersIn: "jlio"), phases: .down) { press in
+                guard press.modifiers.isDisjoint(with: [.command, .option, .control]) else { return .ignored }
                 switch press.characters {
                 case "j", "l":  // 5초 앞뒤
                     model.seek(max(0, min(model.duration, model.position + (press.characters == "l" ? 5 : -5))))
@@ -111,6 +119,7 @@ struct EditorPane: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }
+            EncodeSettingsArea()
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
             if case .success(let url) = result { model.openNew(url) }
@@ -152,11 +161,41 @@ struct CutActions: View {
     }
 }
 
+/// 인코딩 설정 자리 (아직 비어 있음)
+struct EncodeSettingsArea: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            Text("인코딩 설정 (준비 중)")
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: 150)
+        .background(.background.secondary)
+    }
+}
+
 /// 사이드바: 자른 구간 목록 (끌어서 순서 바꾸기) + 맨 아래 영상 추가
 struct ClipSidebar: View {
     @Bindable var model: AppModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            list
+            // 목록 아래 따로 둔다 (겹쳐 띄우면 마지막 구간을 가린다)
+            Divider()
+            Button { model.newSource() } label: {
+                Label("영상 추가", systemImage: "plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .padding(10)
+            .help("빈 화면에서 새 영상을 불러옵니다")
+        }
+    }
+
+    private var list: some View {
         List(selection: $model.selectedClipID) {
             ForEach(model.clips) { clip in
                 ClipRow(clip: clip)
@@ -178,15 +217,6 @@ struct ClipSidebar: View {
         }
         .contextMenu(forSelectionType: Clip.ID.self) { ids in
             Button("삭제") { model.delete(ids) }
-        }
-        .safeAreaInset(edge: .bottom) {
-            Button { model.newSource() } label: {
-                Label("영상 추가", systemImage: "plus")
-                    .frame(maxWidth: .infinity)
-            }
-            .controlSize(.large)
-            .padding(10)
-            .help("빈 화면에서 새 영상을 불러옵니다")
         }
     }
 }
@@ -287,6 +317,26 @@ struct InfoPanel: View {
         rows.append(("재생", s.playback))
         for (i, e) in s.errors.enumerated() { rows.append(("오류 \(i + 1)", e)) }
         return rows
+    }
+}
+
+extension View {
+    /// 오른쪽 옆 패널: 본문 폭은 그대로 두고 위에 덮어 띄운다 (iRayer 의 설정 패널과 같은 방식)
+    func sidePanel<Content: View>(isPresented: Binding<Bool>, width: CGFloat, @ViewBuilder content: @escaping () -> Content) -> some View {
+        overlay(alignment: .trailing) {
+            if isPresented.wrappedValue {
+                content()
+                    .frame(width: width)
+                    .frame(maxHeight: .infinity)
+                    .background(.background)
+                    // 왼쪽 가장자리 세로 구분선 (Divider 는 겹쳐 놓으면 가로줄이 된다)
+                    .overlay(alignment: .leading) { Rectangle().fill(.separator).frame(width: 1) }
+                    .shadow(color: .black.opacity(0.15), radius: 12, x: -2)
+                    .transition(.move(edge: .trailing))
+            }
+        }
+        .clipped()
+        .animation(.easeInOut(duration: 0.2), value: isPresented.wrappedValue)
     }
 }
 
