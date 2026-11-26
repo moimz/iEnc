@@ -22,3 +22,13 @@ E="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
 cp -f "$B" "$E/ffmpeg"
 codesign --force --sign "$ID" --options runtime --timestamp=none "$E/ffmpeg"
 echo "ffmpeg 실행 파일 넣음"
+
+# 소프트웨어 인코더(x264·x265, GPL)용 ffmpeg — 있으면 Contents/MacOS/ffmpeg-gpl 로 (Scripts/build-ffmpeg-gpl.sh)
+G="$SRCROOT/Vendor/ffmpeg-gpl/bin/ffmpeg"
+if [ -f "$G" ]; then
+	cp -f "$G" "$E/ffmpeg-gpl"
+	codesign --force --sign "$ID" --options runtime --timestamp=none "$E/ffmpeg-gpl"
+	echo "ffmpeg-gpl 넣음"
+else
+	echo "warning: $G 가 없어 소프트웨어 인코더(x264·x265) 없이 빌드"
+fi

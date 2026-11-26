@@ -52,17 +52,38 @@ struct SourceMeta {
 
 /// 설정 + 구간 → ffmpeg 명령 (만들 파일마다 하나)
 enum EncodePlan {
-    /// 앱 설정의 CPU 사용량 (1 = 전부, 0.5 = 절반…). 디코딩·필터 스레드 수를 줄이고 실행 우선순위를 낮춘다.
-    /// 인코딩은 VideoToolbox 미디어 엔진(전용 하드웨어)이라 이 값과 상관없다
+    /// 앱 설정의 CPU 사용량 (1 = 전부, 0.5 = 절반…): 영상 풀기·필터·소프트웨어 인코더(x264·x265)의 스레드 수.
+    /// 실행 우선순위(QoS)는 건드리지 않는다 — 낮추면 효율 코어로 밀려 4배 넘게 느려졌다.
+    /// 하드웨어 인코딩은 미디어 엔진이 해서 이 값과 거의 상관없다
     static var cpuLimit: Double {
         let v = UserDefaults.standard.double(forKey: "cpuLimit")
         return v > 0 ? v : 1
     }
 
+    static var threadCount: Int {
+        max(1, Int((Double(ProcessInfo.processInfo.activeProcessorCount) * cpuLimit).rounded()))
+    }
+
     static func threadArgs() -> [String] {
         guard cpuLimit < 1 else { return [] }
-        let n = max(1, Int((Double(ProcessInfo.processInfo.activeProcessorCount) * cpuLimit).rounded()))
+        let n = threadCount
         return ["-threads", "\(n)", "-filter_threads", "\(n)", "-filter_complex_threads", "\(n)"]
+    }
+
+    /// 쓸 ffmpeg: 소프트웨어 인코더면 GPL 빌드(ffmpeg-gpl), 아니면 LGPL 빌드
+    static func ffmpeg(for e: EncodeSettings) -> URL? {
+        e.videoCodec.isSoftware ? softwareFFmpeg : Bundle.main.url(forAuxiliaryExecutable: "ffmpeg")
+    }
+
+    /// x264·x265 가 든 ffmpeg (Homebrew 정적 라이브러리로 빌드해 macOS 27 이상에서만)
+    static var softwareFFmpeg: URL? {
+        guard ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)) else { return nil }
+        return Bundle.main.url(forAuxiliaryExecutable: "ffmpeg-gpl")
+    }
+
+    static func pixelFormat(_ e: EncodeSettings) -> String {
+        guard e.tenBit && e.videoCodec.isHEVC else { return "yuv420p" }
+        return e.videoCodec == .x265 ? "yuv420p10le" : "p010le"
     }
 
     struct Output {
@@ -85,6 +106,17 @@ enum EncodePlan {
             if e.tenBit { a += ["-profile:v", "main10"] }
         case .h264:
             a = ["-c:v", "h264_videotoolbox", "-profile:v", "high"]
+        case .x264, .x265:
+            let pool = cpuLimit < 1 ? threadCount : 0
+            if e.videoCodec == .x264 {
+                a = ["-c:v", "libx264", "-preset", e.preset.x26x]
+                if pool > 0 { a += ["-threads", "\(pool)"] }
+            } else {
+                a = ["-c:v", "libx265", "-preset", e.preset.x26x, "-tag:v", "hvc1",
+                     "-x265-params", "log-level=error" + (pool > 0 ? ":pools=\(pool)" : "")]
+            }
+            a += e.rateMode == .quality ? ["-crf", String(format: "%.0f", e.crf)] : ["-b:v", String(format: "%.0fk", e.bitrate * 1000)]
+            return a
         }
         if e.rateMode == .quality {
             a += ["-q:v", "\(Int(e.quality))"]
@@ -133,7 +165,7 @@ enum EncodePlan {
         }
         if let h = targetH, h != meta.height { f.append("scale=-2:\(h)") }
         if e.frameRate != .source { f.append("fps=\(e.frameRate.rawValue)") }
-        f.append(e.tenBit && e.videoCodec == .hevc ? "format=p010le" : "format=yuv420p")
+        f.append("format=" + pixelFormat(e))
         return f.joined(separator: ",")
     }
 
@@ -272,7 +304,7 @@ enum EncodePlan {
             }
             v.append("setsar=1")
             v.append(String(format: "fps=%.3f", fps))
-            v.append(e.tenBit && e.videoCodec == .hevc ? "format=p010le" : "format=yuv420p")
+            v.append("format=" + pixelFormat(e))
             graph.append("[\(i):v:0]\(v.joined(separator: ","))[v\(i)]")
             if withAudio {
                 var af = ["aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=\(channels)"]
@@ -335,6 +367,22 @@ final class EncodeJob {
 
     let outputs: [EncodePlan.Output]
     let totalDuration: Double
+    let ffmpeg: URL?
+    /// 변환 도중에도 켜고 끌 수 있는 백그라운드 모드 (PRIO_DARWIN_BG): 효율 코어로만 돌고 디스크 읽기도 양보.
+    /// 다른 작업이 거의 안 느려지는 대신 변환은 15~20배 느려진다
+    var lowPriority = false {
+        didSet { applyPriority() }
+    }
+    /// 잠시 멈춤 (SIGSTOP / SIGCONT)
+    var paused = false {
+        didSet {
+            guard let pid = process?.processIdentifier, process?.isRunning == true, paused != oldValue else { return }
+            kill(pid, paused ? SIGSTOP : SIGCONT)
+            if paused { pausedAt = Date() } else if let at = pausedAt { pausedTotal += Date().timeIntervalSince(at); pausedAt = nil }
+        }
+    }
+    private var pausedAt: Date?
+    private var pausedTotal = 0.0
     var state = State.running
     /// 0~1
     var progress = 0.0
@@ -353,10 +401,9 @@ final class EncodeJob {
     private var started = Date()
     private var timer: Timer?
 
-    static var ffmpegURL: URL? { Bundle.main.url(forAuxiliaryExecutable: "ffmpeg") }
-
-    init(outputs: [EncodePlan.Output]) {
+    init(outputs: [EncodePlan.Output], ffmpeg: URL?) {
         self.outputs = outputs
+        self.ffmpeg = ffmpeg
         totalDuration = outputs.reduce(0) { $0 + $1.duration }
         notes = Array(Set(outputs.flatMap(\.notes))).sorted()
     }
@@ -371,14 +418,20 @@ final class EncodeJob {
 
     func cancel() {
         guard state == .running else { return }
+        if paused { paused = false }  // 멈춘 프로세스는 신호를 못 받으니 먼저 깨운다
         state = .cancelled
         process?.terminate()
         stop()
     }
 
+    /// 멈춰 있던 시간은 뺀다
+    private var working: Double {
+        Date().timeIntervalSince(started) - pausedTotal - (pausedAt.map { Date().timeIntervalSince($0) } ?? 0)
+    }
+
     private func tick() {
-        guard state == .running else { return }
-        elapsed = Date().timeIntervalSince(started)
+        guard state == .running, !paused else { return }
+        elapsed = working
         if progress > 0.02 {
             remaining = max(0, elapsed / progress - elapsed)
             estimatedBytes = Int64(Double(bytes) / progress)
@@ -388,7 +441,7 @@ final class EncodeJob {
     private func stop() {
         timer?.invalidate()
         timer = nil
-        elapsed = Date().timeIntervalSince(started)
+        elapsed = working
         for o in outputs { for t in o.temp { try? FileManager.default.removeItem(at: t) } }
     }
 
@@ -401,14 +454,12 @@ final class EncodeJob {
             stop()
             return
         }
-        guard let ffmpeg = Self.ffmpegURL else { fail("앱 안에 ffmpeg 가 없습니다"); return }
+        guard let ffmpeg else { fail("이 인코더를 쓸 ffmpeg 가 없습니다 (x264·x265 는 macOS 27 이상)"); return }
         let out = outputs[fileIndex]
         try? FileManager.default.createDirectory(at: out.url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let p = Process()
         p.executableURL = ffmpeg
         p.arguments = out.args
-        // CPU 를 덜 쓰게 했으면 우선순위도 낮춘다 (다른 앱이 먼저)
-        if EncodePlan.cpuLimit < 1 { p.qualityOfService = .utility }
         let pipe = Pipe(), errPipe = Pipe()
         p.standardOutput = pipe
         p.standardError = errPipe
@@ -433,9 +484,16 @@ final class EncodeJob {
         do {
             try p.run()
             process = p
+            applyPriority()
+            if paused { kill(p.processIdentifier, SIGSTOP) }
         } catch {
             fail("ffmpeg 를 실행하지 못함: \(error.localizedDescription)")
         }
+    }
+
+    private func applyPriority() {
+        guard let pid = process?.processIdentifier, process?.isRunning == true else { return }
+        setpriority(PRIO_DARWIN_PROCESS, id_t(pid), lowPriority ? PRIO_DARWIN_BG : 0)
     }
 
     private func progressLine(_ line: String, output: EncodePlan.Output) {
@@ -512,7 +570,7 @@ enum SizeEstimate {
 
     /// 구간들에서 고르게 3초짜리 조각 최대 4개를 영상만 인코딩해 초당 비트 수를 잰다
     private static func sampleVideoRate(clips: [Clip], settings e: EncodeSettings, metas: [URL: SourceMeta], completion: @escaping (Double?) -> Void) {
-        guard let ffmpeg = EncodeJob.ffmpegURL else { completion(nil); return }
+        guard let ffmpeg = EncodePlan.ffmpeg(for: e) else { completion(nil); return }
         let total = clips.reduce(0) { $0 + $1.length }
         let count = min(4, max(1, Int(total / 10)))
         // 이어 붙인 시간에서 고르게 뽑은 자리 → (구간, 그 안의 시각)

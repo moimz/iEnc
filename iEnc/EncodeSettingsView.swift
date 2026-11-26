@@ -8,20 +8,42 @@ struct EncodeSettingsView: View {
     private var s: Binding<EncodeSettings> { $model.encode }
     private var e: EncodeSettings { model.encode }
     private var copyVideo: Bool { e.videoCodec == .copy }
+    /// 고를 수 있는 코덱: x264·x265 는 GPL ffmpeg 가 있고 macOS 27 이상일 때만
+    private var codecs: [EncodeSettings.VideoCodec] {
+        EncodeSettings.VideoCodec.allCases.filter { !$0.isSoftware || EncodePlan.softwareFFmpeg != nil }
+    }
     private var aac: Bool { e.audioCodec == .aac }
 
     var body: some View {
         Form {
             Section("영상") {
                 Picker("코덱", selection: s.videoCodec) {
-                    ForEach(EncodeSettings.VideoCodec.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(codecs) { c in
+                        Text(c.rawValue).tag(c)
+                        if c == .h264 || c == .x264 { Divider() }
+                    }
                 }
-                .help("원본 그대로는 다시 압축하지 않아 빠르고 화질 손실이 없지만, 시작점이 키프레임에 맞춰져 조금 앞당겨질 수 있습니다")
+                .help("하드웨어: 미디어 엔진으로 빠르고 CPU 를 거의 안 씀 (같은 화질이면 큼). CPU(x265·x264): 성능 코어를 다 써서 같은 화질을 더 작게. 원본 그대로: 다시 압축하지 않아 빠르지만 시작점이 키프레임에 맞춰짐")
+                if e.videoCodec.isSoftware {
+                    Picker("압축 수고", selection: s.preset) {
+                        ForEach(EncodeSettings.Preset.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .help("CPU 사용량이 아니라 장면마다 얼마나 꼼꼼히 압축하느냐. 작게일수록 같은 화질이 작은 파일이 되고 오래 걸립니다")
+                }
                 Group {
                     Picker("화질", selection: s.rateMode) {
                         ForEach(EncodeSettings.RateMode.allCases) { Text($0.rawValue).tag($0) }
                     }
-                    if e.rateMode == .quality {
+                    if e.rateMode == .quality && e.videoCodec.isSoftware {
+                        LabeledContent("화질 (CRF)") {
+                            HStack {
+                                // 왼쪽이 화질 좋음(작은 CRF) — 하드웨어 품질 막대와 방향을 맞추려고 뒤집어 보인다
+                                Slider(value: Binding(get: { 50 - e.crf }, set: { model.encode.crf = 50 - $0 }), in: 15...36, step: 1)
+                                Text("\(Int(e.crf))").monospacedDigit().frame(width: 26, alignment: .trailing)
+                            }
+                        }
+                        .help("낮을수록 화질이 좋고 파일이 큽니다. x264 는 18~23, x265 는 22~28 이 흔히 쓰는 범위")
+                    } else if e.rateMode == .quality {
                         LabeledContent("품질") {
                             HStack {
                                 Slider(value: s.quality, in: 1...100, step: 1)
@@ -54,7 +76,7 @@ struct EncodeSettingsView: View {
                         ForEach(EncodeSettings.FrameRate.allCases) { Text($0.label).tag($0) }
                     }
                     Toggle("10비트", isOn: s.tenBit)
-                        .disabled(e.videoCodec != .hevc)
+                        .disabled(!e.videoCodec.isHEVC)
                         .help("HEVC Main10. 그러데이션 띠가 덜 생깁니다")
                     Picker("디인터레이스", selection: s.deinterlace) {
                         ForEach(EncodeSettings.Deinterlace.allCases) { Text($0.rawValue).tag($0) }
@@ -155,7 +177,7 @@ struct EncodeSettingsView: View {
 
 /// 변환 진행·결과
 private struct JobStatus: View {
-    let job: EncodeJob
+    @Bindable var job: EncodeJob
     let model: AppModel
 
     var body: some View {
@@ -163,7 +185,7 @@ private struct JobStatus: View {
             switch job.state {
             case .running:
                 HStack {
-                    Text(job.outputs.count > 1 ? "변환 중 (\(job.fileIndex + 1)/\(job.outputs.count))" : "변환 중")
+                    Text((job.paused ? "멈춤" : "변환 중") + (job.outputs.count > 1 ? " (\(job.fileIndex + 1)/\(job.outputs.count))" : ""))
                     Spacer()
                     Text("\(Int(job.progress * 100))%").monospacedDigit()
                 }
@@ -172,6 +194,15 @@ private struct JobStatus: View {
                 row("시간", "\(FF.duration(job.elapsed)) / " + (job.remaining.map { "남은 약 " + FF.duration($0) } ?? "계산 중"))
                 row("크기", "\(FF.bytes(job.bytes)) / " + (job.estimatedBytes.map { "예상 " + FF.bytes($0) } ?? "계산 중"))
                 if !job.speed.isEmpty { row("속도", "실시간의 \(job.speed)") }
+                HStack {
+                    Toggle("효율 코어로만", isOn: $job.lowPriority)
+                        .toggleStyle(.checkbox)
+                        .help("변환 도중에도 켜고 끌 수 있습니다. 켜면 다른 앱이 거의 안 느려지는 대신 변환이 15~20배 느려집니다")
+                    Spacer()
+                    Button(job.paused ? "이어서" : "잠시 멈춤") { job.paused.toggle() }
+                        .controlSize(.small)
+                }
+                .font(.caption)
             case .finished:
                 Label("변환 끝 · \(FF.duration(job.elapsed))", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)

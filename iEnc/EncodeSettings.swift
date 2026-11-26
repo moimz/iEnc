@@ -4,11 +4,31 @@ import Foundation
 /// 인코딩은 ffmpeg 실행 파일 + VideoToolbox 하드웨어 인코더로 할 계획 (Ai/iEnc.md "정한 것").
 struct EncodeSettings: Equatable {
     // MARK: 영상
+    /// 하드웨어 = VideoToolbox(미디어 엔진, CPU 거의 안 씀, 빠르지만 같은 화질이면 큼)
+    /// CPU = x265·x264 (GPL ffmpeg-gpl, macOS 27+, 성능 코어를 다 써서 같은 화질이면 작음)
     enum VideoCodec: String, CaseIterable, Identifiable {
-        case hevc = "HEVC (H.265)"
-        case h264 = "H.264"
+        case hevc = "HEVC · 하드웨어"
+        case h264 = "H.264 · 하드웨어"
+        case x265 = "HEVC · x265 (CPU)"
+        case x264 = "H.264 · x264 (CPU)"
         case copy = "원본 그대로 (다시 압축 안 함)"
         var id: Self { self }
+        var isSoftware: Bool { self == .x265 || self == .x264 }
+        var isHEVC: Bool { self == .hevc || self == .x265 }
+    }
+    /// 소프트웨어 인코더가 장면마다 들이는 수고 (CPU 사용량이 아니라 같은 화질을 얼마나 작게 담느냐)
+    enum Preset: String, CaseIterable, Identifiable {
+        case fast = "빠르게"
+        case medium = "보통"
+        case small = "작게 (느림)"
+        var id: Self { self }
+        var x26x: String {
+            switch self {
+            case .fast: "veryfast"
+            case .medium: "medium"
+            case .small: "slow"
+            }
+        }
     }
     enum RateMode: String, CaseIterable, Identifiable {
         case quality = "품질 기준"
@@ -48,6 +68,9 @@ struct EncodeSettings: Equatable {
     var rateMode = RateMode.quality
     /// VideoToolbox 품질 (1~100, 높을수록 좋고 큼)
     var quality = 60.0
+    /// 소프트웨어 인코더 화질 (CRF, 낮을수록 좋고 큼. x264 기본 23, x265 기본 28)
+    var crf = 22.0
+    var preset = Preset.medium
     /// 비트레이트 (Mbps)
     var bitrate = 6.0
     var resolution = Resolution.source

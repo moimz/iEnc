@@ -192,7 +192,7 @@ final class AppModel {
         let template = overrideTemplate ?? defaults.string(forKey: FileNameTemplate.key) ?? FileNameTemplate.defaultValue
         let outputs = EncodePlan.make(clips: clips, settings: encode, metas: metas,
                                       folder: { fixed ?? $0.deletingLastPathComponent() }, template: template)
-        let job = EncodeJob(outputs: outputs)
+        let job = EncodeJob(outputs: outputs, ffmpeg: EncodePlan.ffmpeg(for: encode))
         job.estimatedBytes = estimate
         self.job = job
         job.start()

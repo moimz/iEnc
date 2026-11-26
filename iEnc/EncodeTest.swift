@@ -25,7 +25,15 @@ enum EncodeTest {
             guard (model.metasReady && model.sources.allSatisfy { $0.duration > 0 }) || waited > 60 else { return }
             timer.invalidate()
             var e = EncodeSettings()
-            switch kv["codec"] { case "h264": e.videoCodec = .h264; case "copy": e.videoCodec = .copy; default: break }
+            switch kv["codec"] {
+            case "h264": e.videoCodec = .h264
+            case "x264": e.videoCodec = .x264
+            case "x265": e.videoCodec = .x265
+            case "copy": e.videoCodec = .copy
+            default: break
+            }
+            switch kv["preset"] { case "fast": e.preset = .fast; case "small": e.preset = .small; default: break }
+            if let c = kv["crf"], let v = Double(c) { e.crf = v }
             if let q = kv["q"], let v = Double(q) { e.quality = v }
             if let b = kv["br"], let v = Double(b) { e.rateMode = .bitrate; e.bitrate = v }
             switch kv["res"] {
@@ -62,6 +70,7 @@ enum EncodeTest {
                 var before = rusage()
                 getrusage(RUSAGE_CHILDREN, &before)
                 model.startEncode(folder: out, template: "\(name)_{번호}")
+                if kv["bg"] == "1" { model.job?.lowPriority = true }
                 Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { t3 in
                     guard let job = model.job, job.state != .running else { return }
                     t3.invalidate()
