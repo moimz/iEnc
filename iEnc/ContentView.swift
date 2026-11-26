@@ -18,8 +18,12 @@ struct ContentView: View {
         } detail: {
             detail
         }
-        .navigationTitle(model.url?.lastPathComponent ?? "iEnc")
+        .navigationTitle(model.url?.lastPathComponent ?? "새 프로젝트")
         .focusedSceneValue(\.appModel, model)
+        // 영상 정보는 영상이 있을 때만: 처음 영상을 열면 저절로 보인다
+        .onChange(of: model.url) { old, new in
+            if old == nil && new != nil { showInfo = true }
+        }
         .onChange(of: model.askReset) {
             // 비어 있으면 묻지 않고 바로
             if model.askReset && model.isEmptyProject { model.resetProject(); model.askReset = false }
@@ -46,6 +50,7 @@ struct ContentView: View {
                         Label("영상 정보", systemImage: "info.circle")
                     }
                     .help("영상 정보 보이기·숨기기")
+                    .disabled(model.url == nil)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showEncode.toggle() } label: {
@@ -133,7 +138,7 @@ struct EditorPane: View {
                     preview
                         .frame(minWidth: 200, maxWidth: .infinity)
                         .layoutPriority(1)
-                    if showInfo {
+                    if showInfo && model.url != nil {
                         infoDivider
                         InfoPanel(model: model)
                             .frame(width: min(infoWidth, max(200, geo.size.width - 201)))
@@ -241,13 +246,13 @@ struct CutActions: View {
                 Button("구간 적용") { model.applyToSelected() }
                     .disabled(!model.selectionChanged)
                     .help("타임라인에서 고른 구간을 지금 범위로 고칩니다")
-                Button("새 구간으로 자르기") { model.cut() }
+                Button("새 구간으로 추가") { model.cut() }
                     .keyboardShortcut("k", modifiers: .command)
             } else {
                 Button {
                     model.cut()
                 } label: {
-                    Label("구간 자르기", systemImage: "scissors")
+                    Label("선택 구간 추가", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut("k", modifiers: .command)
@@ -258,7 +263,7 @@ struct CutActions: View {
     }
 }
 
-/// 구간 자르기 옆: 소리 트랙 고르기. 누르면 말풍선에서
+/// 선택 구간 추가 옆: 오디오 트랙 설정. 누르면 말풍선에서
 /// 미리보기로 들을 트랙(하나)과 자를 구간에 넣을 트랙(여럿·하나·없음)을 고른다
 struct AudioTrackButton: View {
     @Bindable var model: AppModel
@@ -267,16 +272,10 @@ struct AudioTrackButton: View {
     private var tracks: [AudioTrack] { model.audioTracks }
     private var included: [Int] { model.cutTracks ?? Array(tracks.indices) }
 
-    private var title: String {
-        if included.isEmpty { return "소리 없음" }
-        if tracks.count == 1 { return "소리" }
-        if model.cutTracks == nil { return "소리 모두" }
-        return included.map { tracks[$0].short($0 + 1) }.joined(separator: "·")
-    }
-
     var body: some View {
         Button { shown.toggle() } label: {
-            Label(title, systemImage: included.isEmpty ? "speaker.slash" : "speaker.wave.2")
+            // 글자는 늘 같게 (고른 트랙은 말풍선과 타임라인 소리 줄에서 본다). 아이콘만 소리를 뺐는지 보여 준다
+            Label("오디오 트랙 설정", systemImage: included.isEmpty ? "speaker.slash" : "speaker.wave.2")
                 .lineLimit(1)
         }
         .help("미리보기로 들을 소리 트랙과, 자를 구간에 넣을 소리 트랙을 고릅니다")
@@ -326,7 +325,7 @@ struct SourceSidebar: View {
             // 목록 아래 따로 (목록을 가리지 않게). 누르면 바로 파일을 고른다
             Divider()
             Button { importing = true } label: {
-                Label("영상 추가", systemImage: "plus")
+                Label("영상 불러오기", systemImage: "plus")
                     .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
@@ -358,7 +357,7 @@ struct SourceSidebar: View {
         }
         .overlay {
             if model.sources.isEmpty {
-                Text("불러온 영상이 여기에 쌓입니다")
+                Text("불러온 영상이 없습니다")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -436,10 +435,6 @@ struct InfoPanel: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if model.url == nil {
-                        Text("영상을 끌어 놓으면 형식·코덱·해상도·키프레임 간격과 미리보기 진단 값이 여기에 나옵니다.")
-                            .foregroundStyle(.secondary)
-                    }
                     ForEach(model.info.sections) { section in
                         SectionView(title: section.title, rows: section.rows)
                     }

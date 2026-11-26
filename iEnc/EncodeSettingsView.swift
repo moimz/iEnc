@@ -17,13 +17,12 @@ struct EncodeSettingsView: View {
     var body: some View {
         Form {
             Section("영상") {
-                Picker("코덱", selection: s.videoCodec) {
+                Picker(selection: s.videoCodec) {
                     ForEach(codecs) { c in
                         Text(c.rawValue).tag(c)
                         if c == .h264 || c == .x264 { Divider() }
                     }
-                }
-                .help("하드웨어: 미디어 엔진으로 빠르고 CPU 를 거의 안 씀 (같은 화질이면 큼). CPU(x265·x264): 성능 코어를 다 써서 같은 화질을 더 작게. 원본 그대로: 다시 압축하지 않아 빠르지만 시작점이 키프레임에 맞춰짐")
+                } label: { InfoLabel("변환 방식", Info.codec) }
                 if e.videoCodec.isSoftware {
                     Picker(selection: s.preset) {
                         ForEach(EncodeSettings.Preset.allCases) { Text($0.rawValue).tag($0) }
@@ -269,6 +268,16 @@ private struct InfoLabel: View {
 
 /// ⓘ 말풍선 글 (마크다운 굵게 가능)
 private enum Info {
+    static let codec = """
+    **어떤 형식으로, 무엇으로 압축할지** 고릅니다.
+
+    · **하드웨어** (HEVC·H.264): 맥의 미디어 엔진이 압축해 빠르고 CPU 를 거의 쓰지 않습니다. 대신 같은 화질이면 파일이 큽니다.
+    · **CPU** (x265·x264): 성능 코어를 다 써서 같은 화질을 더 작은 파일로 만듭니다. 하드웨어보다 몇 배 느립니다.
+    · **원본 그대로**: 다시 압축하지 않아 아주 빠르고 화질 손실이 없습니다. 대신 구간 시작이 가까운 키프레임으로 조금 당겨질 수 있습니다.
+
+    HEVC 는 H.264 보다 같은 화질에서 30~50% 작지만, 아주 오래된 기기는 재생하지 못할 수 있습니다.
+    """
+
     static let preset = """
     **장면마다 얼마나 꼼꼼히 들여다보고 압축할지**입니다.
 

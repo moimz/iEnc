@@ -43,7 +43,7 @@ struct ClipTimeline: View {
                 .scrollIndicators(.visible)
                 .overlay {
                     if model.clips.isEmpty {
-                        Text("구간을 자르면(⌘K) 여기에 차례로 쌓입니다")
+                        Text("먼저 구간을 추가(⌘K)하여 주세요.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .allowsHitTesting(false)
