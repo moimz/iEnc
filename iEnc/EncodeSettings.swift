@@ -113,11 +113,24 @@ struct EncodeSettings: Equatable {
 }
 
 /// 앱 설정(⌘,)에 두는 저장 방식: 위치 · 파일 이름 규칙
+/// 저장 값은 고정 영문 키, 화면 글자는 label (글자를 바꿔도 저장된 설정이 풀리지 않게)
 enum SaveLocation: String, CaseIterable, Identifiable {
-    case source = "원본과 같은 폴더"
-    case folder = "특정 폴더"
-    case ask = "매번 묻기"
+    case source, folder, ask
     var id: Self { self }
+    var label: String {
+        switch self {
+        case .source: "원본과 같은 폴더"
+        case .folder: "특정 폴더"
+        case .ask: "매번 묻기"
+        }
+    }
+
+    /// 예전 빌드는 화면 글자를 그대로 저장했다 ("정한 폴더" 등) → 영문 키로 옮긴다 (앱 시작 때 한 번)
+    static func migrate() {
+        let d = UserDefaults.standard
+        let old = ["원본과 같은 폴더": "source", "정한 폴더": "folder", "특정 폴더": "folder", "매번 묻기": "ask"]
+        if let v = d.string(forKey: "saveLocation"), let key = old[v] { d.set(key, forKey: "saveLocation") }
+    }
 }
 
 enum FileNameTemplate {

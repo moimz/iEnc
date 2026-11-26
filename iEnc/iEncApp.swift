@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct iEncApp: App {
+    init() { SaveLocation.migrate() }
+
     var body: some Scene {
         WindowGroup {
             // 왼쪽 사이드바 210 · 본문 최소 500 · 인코딩 사이드바 310 (양쪽 사이드바는 폭 고정, 줄고 느는 건 본문만)
@@ -83,7 +85,7 @@ private struct GeneralSettings: View {
         Form {
             Section("저장") {
                 Picker("기본 저장 위치", selection: $location) {
-                    ForEach(SaveLocation.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(SaveLocation.allCases) { Text($0.label).tag($0) }
                 }
                 if location == .folder {
                     LabeledContent("폴더") {
