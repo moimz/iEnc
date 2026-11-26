@@ -42,6 +42,7 @@ struct iEncApp: App {
 /// 설정 창: 저장 위치 · 파일 이름 규칙 · 미리보기 디코딩
 struct SettingsView: View {
     @AppStorage("hardwareDecoding") private var hardware = false
+    @AppStorage("cpuLimit") private var cpuLimit: Double = 1
     @AppStorage("saveLocation") private var location = SaveLocation.source
     @AppStorage("saveFolder") private var folder = ""
     @AppStorage(FileNameTemplate.key) private var template = FileNameTemplate.defaultValue
@@ -82,6 +83,16 @@ struct SettingsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+            }
+            Section("변환") {
+                Picker("CPU 사용량", selection: $cpuLimit) {
+                    Text("최대").tag(1.0)
+                    Text("절반").tag(0.5)
+                    Text("적게 (4분의 1)").tag(0.25)
+                }
+                Text("줄이면 영상 풀기·크기 바꾸기 같은 CPU 작업의 스레드 수를 줄이고 우선순위를 낮춰, 변환 중에도 다른 앱이 덜 느려집니다. 압축 자체는 전용 하드웨어(미디어 엔진)가 해서 이 값과 상관없습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("미리보기") {
                 Toggle("하드웨어 디코딩 (VideoToolbox)", isOn: $hardware)

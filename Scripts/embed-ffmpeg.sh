@@ -14,3 +14,11 @@ for d in "$L"/lib*.dylib; do
 	codesign --force --sign "$ID" --options runtime --timestamp=none "$F/$n"
 done
 echo "FFmpeg 라이브러리 넣음: $(ls "$F" | tr '\n' ' ')"
+
+# 변환용 ffmpeg 실행 파일 (Contents/MacOS/ffmpeg, rpath = ../Frameworks)
+B="$SRCROOT/Vendor/ffmpeg/bin/ffmpeg"
+[ -f "$B" ] || { echo "error: $B 가 없음 — Scripts/build-ffmpeg.sh 를 다시 돌린다"; exit 1; }
+E="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
+cp -f "$B" "$E/ffmpeg"
+codesign --force --sign "$ID" --options runtime --timestamp=none "$E/ffmpeg"
+echo "ffmpeg 실행 파일 넣음"

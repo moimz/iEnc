@@ -92,10 +92,13 @@ struct EncodeSettingsView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { convertBar }
     }
 
-    /// 맨 아래 고정: 구간 묶기(위 설정 일부가 이것에 따라 켜지고 꺼짐) + 영상 변환하기
+    /// 맨 아래 고정: 구간 묶기(위 설정 일부가 이것에 따라 켜지고 꺼짐) + 예상 크기 + 영상 변환하기.
+    /// 변환 중엔 진행 막대 · 지난/남은 시간 · 지금/예상 크기 + 취소
     private var convertBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if model.clips.isEmpty {
+            if let job = model.job {
+                JobStatus(job: job, model: model)
+            } else if model.clips.isEmpty {
                 Text("자른 구간이 없습니다")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -109,19 +112,95 @@ struct EncodeSettingsView: View {
                     .labelsHidden()
                     .fixedSize()
                 }
+                HStack {
+                    Text("예상 크기")
+                    Spacer()
+                    if model.estimating {
+                        ProgressView().controlSize(.small)
+                        Text("어림하는 중").foregroundStyle(.secondary)
+                    } else if let bytes = model.estimate {
+                        Text("약 \(FF.bytes(bytes))").monospacedDigit()
+                    } else {
+                        Text("알 수 없음").foregroundStyle(.secondary)
+                    }
+                }
+                .font(.callout)
+                .help("비트레이트 지정·원본 그대로는 계산, 품질 기준은 짧은 조각 몇 개를 시험 인코딩해 어림합니다")
             }
-            Button {
-                // 변환 기능은 아직 없다 (설정 화면 먼저)
-            } label: {
-                Label("영상 변환하기", systemImage: "film.stack")
-                    .frame(maxWidth: .infinity)
+            if model.isEncoding {
+                Button(role: .cancel) { model.cancelEncode() } label: {
+                    Label("취소", systemImage: "xmark").frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+            } else {
+                Button {
+                    model.dismissJob()
+                    model.startEncode()
+                } label: {
+                    Label("영상 변환하기", systemImage: "film.stack")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(model.clips.isEmpty)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(model.clips.isEmpty)
         }
         .padding(12)
         .background(.bar)
         .overlay(alignment: .top) { Divider() }
+        .onChange(of: model.encode) { model.updateEstimate() }
+        .onChange(of: model.clips) { model.updateEstimate() }
+    }
+}
+
+/// 변환 진행·결과
+private struct JobStatus: View {
+    let job: EncodeJob
+    let model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            switch job.state {
+            case .running:
+                HStack {
+                    Text(job.outputs.count > 1 ? "변환 중 (\(job.fileIndex + 1)/\(job.outputs.count))" : "변환 중")
+                    Spacer()
+                    Text("\(Int(job.progress * 100))%").monospacedDigit()
+                }
+                .font(.callout.weight(.medium))
+                ProgressView(value: job.progress)
+                row("시간", "\(FF.duration(job.elapsed)) / " + (job.remaining.map { "남은 약 " + FF.duration($0) } ?? "계산 중"))
+                row("크기", "\(FF.bytes(job.bytes)) / " + (job.estimatedBytes.map { "예상 " + FF.bytes($0) } ?? "계산 중"))
+                if !job.speed.isEmpty { row("속도", "실시간의 \(job.speed)") }
+            case .finished:
+                Label("변환 끝 · \(FF.duration(job.elapsed))", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.callout.weight(.medium))
+                row("파일", "\(job.outputs.count)개 · \(FF.bytes(job.bytes))")
+                HStack {
+                    Button("Finder 에서 보기") { NSWorkspace.shared.activateFileViewerSelecting(job.producedFiles) }
+                    Spacer()
+                    Button("닫기") { model.dismissJob() }
+                }
+                .controlSize(.small)
+            case .cancelled:
+                Label("취소했습니다", systemImage: "xmark.circle").foregroundStyle(.secondary).font(.callout)
+            case .failed(let message):
+                Label("변환 실패", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout.weight(.medium))
+                Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(4)
+            }
+            ForEach(job.notes, id: \.self) { note in
+                Text("· " + note).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).monospacedDigit()
+        }
+        .font(.caption)
     }
 }

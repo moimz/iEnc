@@ -6,7 +6,9 @@
 # - GPL·nonfree 는 켜지 않는다 (LGPL). 하드웨어 디코딩·인코딩은 VideoToolbox·AudioToolbox.
 # - 외부 라이브러리는 macOS 에 들어 있는 zlib·bzip2 만 쓴다 (Homebrew 것은 autodetect 를 꺼서 막는다).
 #   iconv(자막 문자셋 변환)는 켜면 libavcodec 링크에 -liconv 가 빠져 실패한다. 미리보기엔 필요 없어 뺐다.
-# - 결과: Vendor/ffmpeg/{include,lib} (git 에서 빠짐). lib 의 dylib 은 install name 이 @rpath/… 라 앱 Frameworks 에 넣는다.
+# - 결과: Vendor/ffmpeg/{include,lib,bin} (git 에서 빠짐). lib 의 dylib 은 install name 이 @rpath/… 라 앱 Frameworks 에 넣는다.
+# - 변환(인코딩·자르기)은 같은 라이브러리를 쓰는 ffmpeg 실행 파일(bin/ffmpeg)을 앱 Contents/MacOS 에 넣어 따로 실행한다.
+#   (앱 코드와 섞이지 않아 나중에 GPL ffmpeg 로 바꿔도 앱은 MIT 유지). rpath = @executable_path/../Frameworks
 #
 # 사용: Scripts/build-ffmpeg.sh [작업 폴더]   (기본: 임시 폴더, 끝나면 지움)
 set -euo pipefail
@@ -33,9 +35,9 @@ rm -rf "$OUT_DIR"
   --enable-videotoolbox --enable-audiotoolbox \
   --enable-zlib --enable-bzlib \
   --disable-network --disable-indevs --disable-outdevs \
-  --disable-programs --disable-doc --disable-debug \
+  --disable-ffplay --disable-ffprobe --disable-doc --disable-debug \
   --disable-avdevice \
-  --extra-cflags=-mmacosx-version-min=26.0 --extra-ldflags=-mmacosx-version-min=26.0
+  --extra-cflags=-mmacosx-version-min=26.0 --extra-ldflags="-mmacosx-version-min=26.0 -Wl,-rpath,@executable_path/../Frameworks"
 
 make -j"$(sysctl -n hw.ncpu)"
 make install

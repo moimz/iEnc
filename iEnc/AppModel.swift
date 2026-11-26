@@ -17,8 +17,17 @@ final class AppModel {
     var sources: [Source] = []
     /// 영상 전체 파형 (영상마다 한 번). 타임라인 구간은 이 중 제 범위를 잘라 그린다
     var sourceWaves: [URL: WavePeaks] = [:]
-    /// 인코딩 설정 (화면 아래. 아직 변환 기능 없음)
+    /// 인코딩 설정 (오른쪽 사이드바)
     var encode = EncodeSettings()
+    /// 변환 중·끝난 작업 (사이드바 맨 아래 진행 표시)
+    var job: EncodeJob?
+    /// 변환 전 예상 크기 (nil = 모름), 어림하는 중인지
+    var estimate: Int64?
+    var estimating = false
+    /// 원본 정보 (변환 명령 만들 때)
+    private(set) var metas: [URL: SourceMeta] = [:]
+    var metasReady: Bool { sources.allSatisfy { metas[$0.url]?.height ?? 0 > 0 || metas[$0.url]?.hasAudio == true } }
+    private var estimateToken = 0
     /// 타임라인에서 고른 구간. 고르면 그 원본과 범위를 연다
     var selectedClipID: Clip.ID? {
         didSet { if let id = selectedClipID, id != oldValue { load(id) } }
@@ -101,6 +110,7 @@ final class AppModel {
         // 고른 순서대로 목록에 (첫 영상도 먼저 넣어 두고 연다)
         for url in urls where !sources.contains(where: { $0.url == url }) {
             sources.append(Source(url: url))
+            loadMeta(url)
             if url != first { preload(url) }
         }
         openNew(first)
@@ -125,7 +135,74 @@ final class AppModel {
     /// 처음 연 영상이면 사이드바에 넣는다
     private func addSource(_ url: URL) {
         if !sources.contains(where: { $0.url == url }) { sources.append(Source(url: url)) }
+        loadMeta(url)
     }
+
+    private func loadMeta(_ url: URL) {
+        guard metas[url] == nil else { return }
+        metas[url] = SourceMeta()  // 자리 잡기 (두 번 읽지 않게)
+        DispatchQueue.global(qos: .utility).async {
+            let m = SourceMeta.probe(url)
+            DispatchQueue.main.async { self.metas[url] = m; self.updateEstimate() }
+        }
+    }
+
+    // MARK: - 변환
+
+    /// 설정·구간이 바뀌면 예상 크기를 다시 (품질 기준은 시험 인코딩이라 잠깐 기다렸다가)
+    func updateEstimate() {
+        estimateToken += 1
+        let token = estimateToken
+        guard !clips.isEmpty else { estimate = nil; estimating = false; return }
+        estimating = true
+        let delay = encode.videoCodec != .copy && encode.rateMode == .quality ? 0.8 : 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
+            guard token == estimateToken else { return }
+            SizeEstimate.estimate(clips: clips, settings: encode, metas: metas) { [self] bytes in
+                guard token == estimateToken else { return }
+                estimate = bytes
+                estimating = false
+            }
+        }
+    }
+
+    var isEncoding: Bool { job?.state == .running }
+
+    /// 영상 변환하기. folder 를 주면 그 폴더에 (시험용), 아니면 설정의 저장 위치
+    @discardableResult
+    func startEncode(folder override: URL? = nil, template overrideTemplate: String? = nil) -> Bool {
+        guard !clips.isEmpty, !isEncoding else { return false }
+        if isPlaying { pause() }
+        let defaults = UserDefaults.standard
+        let location = SaveLocation(rawValue: defaults.string(forKey: "saveLocation") ?? "") ?? .source
+        var fixed: URL? = override
+        if fixed == nil, location == .folder, let path = defaults.string(forKey: "saveFolder"), !path.isEmpty {
+            fixed = URL(fileURLWithPath: path)
+        }
+        if fixed == nil, location != .source {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.prompt = "여기에 저장"
+            panel.message = "변환한 영상을 저장할 폴더"
+            guard panel.runModal() == .OK, let url = panel.url else { return false }
+            fixed = url
+        }
+        let template = overrideTemplate ?? defaults.string(forKey: FileNameTemplate.key) ?? FileNameTemplate.defaultValue
+        let outputs = EncodePlan.make(clips: clips, settings: encode, metas: metas,
+                                      folder: { fixed ?? $0.deletingLastPathComponent() }, template: template)
+        let job = EncodeJob(outputs: outputs)
+        job.estimatedBytes = estimate
+        self.job = job
+        job.start()
+        return true
+    }
+
+    func cancelEncode() { job?.cancel() }
+
+    /// 끝난 표시를 치우고 다시 설정 화면으로
+    func dismissJob() { if !isEncoding { job = nil } }
 
     /// 영상 길이를 알게 되면: 사이드바 썸네일 + 영상 전체 파형 (한 번만)
     private func sourceOpened(_ url: URL, duration: Double, maker: Thumbnailer? = nil) {
@@ -156,6 +233,9 @@ final class AppModel {
     /// 파일 › 새 프로젝트: 불러온 영상·자른 구간·파형을 모두 비운다 (저장하지 않는 앱이라 이게 "처음부터")
     /// 인코딩 설정은 그대로 둔다
     func resetProject() {
+        guard !isEncoding else { return }
+        job = nil
+        estimate = nil
         newSource()
         clips = []
         sources = []

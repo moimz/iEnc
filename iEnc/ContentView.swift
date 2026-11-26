@@ -88,6 +88,7 @@ struct ContentView: View {
             // 시험용: -demo 를 붙이면 열린 영상에서 구간 둘을 잘라 넣고 첫 구간을 고른다 (화면 확인용)
             // 시험용: -settings 를 붙이면 설정 창을 연다 (화면 확인용)
             if args.contains("-settings") { openSettings() }
+            if let kv = EncodeTest.arguments { EncodeTest.run(model: model, kv) }
             if args.contains("-demo") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     model.setOut(45); model.setIn(30); model.cut()
