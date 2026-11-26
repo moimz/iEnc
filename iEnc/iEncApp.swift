@@ -39,8 +39,39 @@ struct iEncApp: App {
 }
 
 
-/// 설정 창: 저장 위치 · 파일 이름 규칙 · 미리보기 디코딩
+/// 설정 창 (⌘,): 위쪽 탭으로 나눈다 (iRayer 와 같은 모양). 지금은 일반 탭 하나
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            Tab("일반", systemImage: "gearshape") { GeneralSettings() }
+        }
+        .frame(width: 520, height: 520)
+        .background(SettingsWindowStyler())
+    }
+}
+
+/// 설정 창(NSWindow)을 직접 다듬는다 (iRayer·iSQL 과 같은 방법).
+/// 맥 26 SwiftUI 설정 창은 내용이 탭줄 밑까지 깔려(fullSizeContentView) 창이 활성이면 탭줄 띠가 안 보인다
+private struct SettingsWindowStyler: NSViewRepresentable {
+    final class Probe: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async {
+                window.styleMask.remove(.fullSizeContentView)
+                window.titlebarAppearsTransparent = false
+                window.titlebarSeparatorStyle = .line
+                window.toolbarStyle = .preference
+            }
+        }
+    }
+
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) {}
+}
+
+/// 일반 탭: 저장 위치 · 파일 이름 규칙 · CPU 사용량 · 미리보기 디코딩 · 버전
+private struct GeneralSettings: View {
     @AppStorage("hardwareDecoding") private var hardware = false
     @AppStorage("cpuLimit") private var cpuLimit: Double = 1
     @AppStorage("saveLocation") private var location = SaveLocation.source
@@ -90,7 +121,7 @@ struct SettingsView: View {
                     Text("절반").tag(0.5)
                     Text("적게 (4분의 1)").tag(0.25)
                 }
-                Text("줄이면 영상 풀기·크기 바꾸기 같은 CPU 작업의 스레드 수를 줄이고 우선순위를 낮춰, 변환 중에도 다른 앱이 덜 느려집니다. 압축 자체는 전용 하드웨어(미디어 엔진)가 해서 이 값과 상관없습니다.")
+                Text("줄이면 변환에 쓰는 CPU 스레드 수를 줄여, 변환 중에도 다른 앱이 덜 느려집니다. CPU 인코더(x265·x264)는 그만큼 느려지고, 하드웨어 인코딩은 압축을 미디어 엔진이 해서 거의 상관없습니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -100,10 +131,11 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section {
+                LabeledContent("버전", value: iEncApp.versionText)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 480)
-        .fixedSize(horizontal: false, vertical: true)
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { folder = url.path }
         }

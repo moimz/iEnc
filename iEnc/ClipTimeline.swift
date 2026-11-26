@@ -41,14 +41,6 @@ struct ClipTimeline: View {
                     .padding(.vertical, 6)
                 }
                 .scrollIndicators(.visible)
-                .overlay {
-                    if model.clips.isEmpty {
-                        Text("먼저 구간을 추가(⌘K)하여 주세요.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .allowsHitTesting(false)
-                    }
-                }
                 .gesture(
                     MagnifyGesture()
                         .onChanged { v in
@@ -60,6 +52,15 @@ struct ClipTimeline: View {
                 )
             }
             .frame(height: Self.rulerHeight + 3 + Self.videoHeight + Self.audioHeight + 2 + 12 + 12)
+            // 빈 타임라인 안내는 타임라인 칸 전체의 가운데 (스크롤 칸 위에 두면 내용 높이 기준이라 위로 붙는다)
+            .overlay {
+                if model.clips.isEmpty {
+                    Text("먼저 구간을 추가(⌘K)하여 주세요.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .background(Color(white: 0.11))
     }
