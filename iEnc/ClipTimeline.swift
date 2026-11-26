@@ -199,7 +199,6 @@ private struct ClipBlock: View {
             Button("음량 0 dB 로") { model.setGain(clip.id, 0) }
             Button("음량 +6 dB") { model.setGain(clip.id, clip.gain + 6) }
             Button("음량 −6 dB") { model.setGain(clip.id, clip.gain - 6) }
-            Button("소리 끄기 (−30 dB)") { model.setGain(clip.id, Clip.gainRange.lowerBound) }
             let tracks = model.metas[clip.url]?.audioTracks ?? []
             if !tracks.isEmpty {
                 Divider()
