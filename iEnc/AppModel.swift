@@ -19,6 +19,9 @@ final class AppModel {
     var sourceWaves: [URL: WavePeaks] = [:]
     /// 인코딩 설정 (오른쪽 사이드바)
     var encode = EncodeSettings()
+    /// 자막 설정 (2.0 맛보기: 화면만, 변환엔 아직 안 씀) · 구간마다 고른 자막
+    var subtitle = SubtitleDraft()
+    var clipSubtitles: [Clip.ID: ClipSubtitle] = [:]
     /// 변환 중·끝난 작업 (사이드바 맨 아래 진행 표시)
     var job: EncodeJob?
     /// 변환 전 예상 크기 (nil = 모름), 어림하는 중인지
@@ -250,6 +253,7 @@ final class AppModel {
         laneImages = [:]
         laneMakers = [:]
         laneKeys = [:]
+        clipSubtitles = [:]
     }
 
     var isEmptyProject: Bool { sources.isEmpty && clips.isEmpty }
@@ -393,7 +397,7 @@ final class AppModel {
     func delete(_ ids: Set<Clip.ID>) {
         clips.removeAll { ids.contains($0.id) }
         for id in ids {
-            laneImages[id] = nil; laneMakers[id] = nil; laneKeys[id] = nil
+            laneImages[id] = nil; laneMakers[id] = nil; laneKeys[id] = nil; clipSubtitles[id] = nil
         }
         if let id = selectedClipID, ids.contains(id) { selectedClipID = nil }
     }
@@ -484,6 +488,23 @@ final class AppModel {
         }
         // 지금 고른 구간이면 위 편집 값도 맞춘다 (구간 적용 단추가 괜히 켜지지 않게)
         if selectedClipID == id { cutTracks = clips[i].audioTracks }
+    }
+
+    /// 구간의 자막 트랙 고르기 (toggle nil = 모두, -1 = 없음, 그 밖 = 그 트랙 켜기·끄기)
+    func setClipSubtitleTracks(_ id: Clip.ID, toggle track: Int?) {
+        guard let clip = clips.first(where: { $0.id == id }) else { return }
+        let all = Array((metas[clip.url]?.subtitles ?? []).indices)
+        var entry = clipSubtitles[id] ?? ClipSubtitle()
+        switch track {
+        case nil: entry.tracks = nil
+        case -1: entry.tracks = []
+        case let t?:
+            var set = Set(entry.tracks ?? all)
+            if set.contains(t) { set.remove(t) } else { set.insert(t) }
+            let list = all.filter { set.contains($0) }
+            entry.tracks = list == all ? nil : list
+        }
+        clipSubtitles[id] = entry
     }
 
     /// 미리보기로 들을 소리 트랙 바꾸기 (재생 중이면 그 자리에서 이어 재생)

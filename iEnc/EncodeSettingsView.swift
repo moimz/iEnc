@@ -97,12 +97,12 @@ struct EncodeSettingsView: View {
                 }
                 .disabled(!aac)
             }
+            SubtitleSections(model: model)
             Section("출력") {
                 Picker("형식", selection: s.container) {
                     ForEach(EncodeSettings.Container.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Toggle("자막 포함", isOn: s.keepSubtitles)
                 Toggle("제목 태그 유지", isOn: s.keepMetadata)
             }
         }

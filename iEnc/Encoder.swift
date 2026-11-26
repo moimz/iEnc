@@ -13,8 +13,8 @@ struct SourceMeta {
     var audioTracks: [AudioTrack] = []
     var hasAudio: Bool { !audioTracks.isEmpty }
     var bitRate = 0.0
-    /// 자막 스트림 코덱 이름들
-    var subtitles: [String] = []
+    /// 자막 트랙들 (원본 순서)
+    var subtitles: [SubtitleTrack] = []
 
     /// 폰 영상 회전 표시 (시계 방향 0·90·180·270)
     var rotation = 0
@@ -46,7 +46,10 @@ struct SourceMeta {
         m.audioTracks = AudioTrack.list(ctx)
         for i in 0..<Int(ctx.pointee.nb_streams) {
             guard let par = ctx.pointee.streams[i]?.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else { continue }
-            m.subtitles.append(String(cString: avcodec_get_name(par.pointee.codec_id)))
+            let st = ctx.pointee.streams[i]!
+            m.subtitles.append(SubtitleTrack(language: FF.tag(st.pointee.metadata, "language"), title: FF.tag(st.pointee.metadata, "title"),
+                                             codec: String(cString: avcodec_get_name(par.pointee.codec_id)),
+                                             forced: st.pointee.disposition & AV_DISPOSITION_FORCED != 0))
         }
         return m
     }
@@ -86,6 +89,32 @@ struct AudioTrack: Hashable {
                                   isDefault: st.pointee.disposition & AV_DISPOSITION_DEFAULT != 0))
         }
         return out
+    }
+}
+
+/// 원본의 자막 트랙 하나
+struct SubtitleTrack: Hashable {
+    var language: String?
+    var title: String?
+    var codec: String
+    var forced = false
+
+    /// 그림 자막(블루레이 PGS · DVD VobSub 등)은 글자로 꺼낼 수 없다
+    var isText: Bool { ["subrip", "ass", "ssa", "mov_text", "webvtt", "text", "srt", "sami", "microdvd", "subviewer"].contains(codec) }
+
+    /// "#1 eng S&S · ASS (강제)" (number 는 1부터)
+    func label(_ number: Int) -> String {
+        var head = "#\(number)"
+        if let language, language != "und" { head += " " + language }
+        if let title { head += " " + title }
+        let kind = switch codec { case "subrip": "SRT"; case "hdmv_pgs_subtitle": "PGS 그림"; case "dvd_subtitle": "VobSub 그림"; default: codec.uppercased() }
+        return "\(head) · \(kind)" + (forced ? " (강제)" : "")
+    }
+
+    /// 같은 언어 자막이 여럿인 일이 흔해서(대사·노래 가사 등) 번호를 늘 붙인다: "#2 eng"
+    func short(_ number: Int) -> String {
+        if let language, language != "und" { return "#\(number) \(language)" }
+        return "#\(number)"
     }
 }
 
@@ -182,6 +211,8 @@ enum EncodePlan {
         var a: [String] = []
         if e.container != .mkv { a += ["-movflags", "+faststart"] }
         if !e.keepMetadata { a += ["-map_metadata", "-1"] }
+        // 자막은 아직 넣지 않는다 (2.0 예정). ffmpeg 에 맡기면 구간 자른 자막 시각이 수 초 어긋났다 (2026-11-27 시험)
+        a += ["-sn"]
         return a
     }
 
@@ -289,19 +320,6 @@ enum EncodePlan {
         if mixedCopy { a += ["-ss", String(format: "%.3f", pre), "-t", String(format: "%.3f", clip.length)] }
         a += ["-map", "0:v:0"]
         for k in tracks { a += ["-map", "0:a:\(k)"] }
-        // 자막: MKV 는 그대로, MP4·MOV 는 글자 자막만 mov_text 로 (그림 자막은 못 넣음)
-        if e.keepSubtitles && !meta.subtitles.isEmpty {
-            if e.container == .mkv {
-                a += ["-map", "0:s?", "-c:s", "copy"]
-            } else if meta.subtitles.contains(where: { ["subrip", "ass", "ssa", "mov_text", "webvtt", "text"].contains($0) }) {
-                for (i, s) in meta.subtitles.enumerated() where ["subrip", "ass", "ssa", "mov_text", "webvtt", "text"].contains(s) {
-                    a += ["-map", "0:s:\(i)"]
-                }
-                a += ["-c:s", "mov_text"]
-            } else {
-                notes.append("그림 자막은 \(e.container.rawValue) 에 넣을 수 없어 뺐습니다")
-            }
-        }
         if e.videoCodec != .copy, let vf = videoFilter(e, meta: meta, all: all) { a += ["-vf", vf] }
         a += videoCodecArgs(e)
         if e.audioCodec == .aac && !tracks.isEmpty {
@@ -400,7 +418,6 @@ enum EncodePlan {
         a += ["-progress", "pipe:1", "-nostats", "-loglevel", "error", output.path]
         var notes: [String] = []
         if e.audioCodec == .copy { notes.append("한 파일로 합칠 땐 소리를 AAC 로 다시 압축합니다") }
-        if e.keepSubtitles { notes.append("한 파일로 합칠 땐 자막을 넣지 않습니다") }
         return Output(url: output, args: a, duration: clips.reduce(0) { $0 + $1.length }, notes: notes)
     }
 

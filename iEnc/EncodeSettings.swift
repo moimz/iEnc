@@ -109,7 +109,6 @@ struct EncodeSettings: Equatable {
 
     var container = Container.mp4
     var grouping = Grouping.perClip
-    var keepSubtitles = false
     var keepMetadata = true
 }
 

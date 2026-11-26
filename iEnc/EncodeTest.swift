@@ -52,7 +52,6 @@ enum EncodeTest {
             e.normalizeLoudness = kv["loud"] == "1"
             switch kv["cont"] { case "mkv": e.container = .mkv; case "mov": e.container = .mov; default: break }
             if kv["group"] == "joined" { e.grouping = .joined }
-            e.keepSubtitles = kv["subs"] == "1"
             model.encode = e
             for s in model.sources {
                 let start = min(s.duration * 0.3, max(0, s.duration - len))

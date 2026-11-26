@@ -89,6 +89,16 @@ struct ContentView: View {
             // 시험용: -settings 를 붙이면 설정 창을 연다 (화면 확인용)
             if args.contains("-settings") { openSettings() }
             if let kv = EncodeTest.arguments { EncodeTest.run(model: model, kv) }
+            // 자막 설정 화면 보기용: 구간 둘 + 자막 포함 켜기 + 자막 입히기
+            if args.contains("-subdemo") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    model.setOut(45); model.setIn(30); model.cut()
+                    model.setOut(130); model.setIn(100); model.cut()
+                    model.subtitle.enabled = true
+                    model.subtitle.mode = .burn
+                    if let first = model.clips.first { model.setClipSubtitleTracks(first.id, toggle: 0) }
+                }
+            }
             if args.contains("-demo") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     model.setOut(45); model.setIn(30); model.cut()
