@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E10000000000000000000030 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000032 /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		E10000000000000000000001 /* iEnc.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iEnc.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E10000000000000000000030 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -57,6 +62,7 @@
 				E10000000000000000000009 /* Resources */,
 				E10000000000000000000023 /* Embed FFmpeg */,
 				E10000000000000000000024 /* Stamp Commit */,
+				E10000000000000000000033 /* Thin Sparkle */,
 			);
 			buildRules = (
 			);
@@ -66,6 +72,9 @@
 				E10000000000000000000002 /* iEnc */,
 			);
 			name = iEnc;
+			packageProductDependencies = (
+				E10000000000000000000032 /* Sparkle */,
+			);
 			productName = iEnc;
 			productReference = E10000000000000000000001 /* iEnc.app */;
 			productType = "com.apple.product-type.application";
@@ -95,6 +104,9 @@
 			);
 			mainGroup = E10000000000000000000004;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E10000000000000000000031 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E10000000000000000000005 /* Products */;
 			projectDirPath = "";
@@ -146,6 +158,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "sh \"$SRCROOT/Scripts/stamp-commit.sh\"\n";
+		};
+		E10000000000000000000033 /* Thin Sparkle */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Thin Sparkle";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "sh \"$SRCROOT/Scripts/thin-sparkle.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -292,6 +319,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E10000000000000000000031 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E10000000000000000000032 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10000000000000000000031 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E1000000000000000000000A /* Project object */;
 }

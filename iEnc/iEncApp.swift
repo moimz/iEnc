@@ -7,6 +7,8 @@ struct iEncApp: App {
         SaveLocation.migrate()
         // 자막 글꼴(나눔·마루부리): 이 앱에서만 쓰게 등록 (설정 › 자막)
         SubtitleFont.registerBundled()
+        // 자동 업데이트: 하루 한 번 GitHub 최신 릴리즈의 appcast.xml 확인 (디버그 빌드는 안 함)
+        _ = Updater.shared
     }
 
     var body: some Scene {
@@ -24,6 +26,8 @@ struct iEncApp: App {
             // iEnc에 관하여: 기본 정보 창 대신 직접 만든 창 (오픈소스 고지, iRayer 와 같은 모양)
             CommandGroup(replacing: .appInfo) {
                 AboutMenuButton()
+                // 자동 업데이트 (Sparkle)
+                UpdateMenuButton()
             }
             // 도움말: GitHub 페이지 · 문제 신고… (도움말 책이 없어 기본 항목은 뺀다)
             CommandGroup(replacing: .help) {
@@ -98,7 +102,7 @@ struct SettingsView: View {
             Tab("자막", systemImage: "captions.bubble", value: "subtitle") { SubtitleStyleSettings() }
             Tab("파일 연결", systemImage: "doc.badge.arrow.up", value: "files") { FileAssociationSettings() }
         }
-        .frame(width: 520, height: 550)
+        .frame(width: 520, height: 700)
         .background(SettingsWindowStyler())
     }
 }
@@ -184,9 +188,8 @@ private struct GeneralSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section {
-                LabeledContent("버전", value: iEncApp.versionText)
-            }
+            // 버전 · 업데이트 확인 · 자동 확인 (Sparkle)
+            UpdateSection()
         }
         .formStyle(.grouped)
         .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
