@@ -2,18 +2,22 @@ import AVFoundation
 import AppKit
 import Observation
 
-/// 창 하나의 상태: 자른 구간 목록(사이드바), 지금 연 영상과 고르는 구간, 미리보기 엔진, 정보·진단 값
+/// 창 하나의 상태: 자른 구간 목록(타임라인), 지금 연 영상과 고르는 구간, 미리보기 엔진, 정보·진단 값
 @Observable
 final class AppModel {
     let displayLayer = AVSampleBufferDisplayLayer()
     let audioRenderer = AVSampleBufferAudioRenderer()
     let synchronizer = AVSampleBufferRenderSynchronizer()
 
-    // MARK: 사이드바: 자른 구간
+    // MARK: 타임라인: 자른 구간
     var clips: [Clip] = []
+    /// 타임라인 영상 줄 그림 (구간마다)
+    var laneImages: [Clip.ID: [CGImage?]] = [:]
+    /// 타임라인 소리 줄 파형 (구간마다, 0~1)
+    var waveforms: [Clip.ID: [Float]] = [:]
     /// 인코딩 설정 (화면 아래. 아직 변환 기능 없음)
     var encode = EncodeSettings()
-    /// 사이드바에서 고른 구간. 고르면 그 원본과 범위를 연다
+    /// 타임라인에서 고른 구간. 고르면 그 원본과 범위를 연다
     var selectedClipID: Clip.ID? {
         didSet { if let id = selectedClipID, id != oldValue { load(id) } }
     }
@@ -45,6 +49,8 @@ final class AppModel {
     private var stripKey = ""
     private var pendingRange: (Double, Double)?
     private var timer: Timer?
+    private var laneMakers: [Clip.ID: Thumbnailer] = [:]
+    private var laneKeys: [Clip.ID: String] = [:]
 
     init() {
         displayLayer.videoGravity = .resizeAspect
@@ -63,13 +69,13 @@ final class AppModel {
 
     // MARK: - 영상 열기
 
-    /// 새 영상을 연다 (사이드바 선택은 풂: 이제부터 자르는 건 새 구간)
+    /// 새 영상을 연다 (타임라인 선택은 풂: 이제부터 자르는 건 새 구간)
     func openNew(_ url: URL) {
         selectedClipID = nil
         open(url)
     }
 
-    /// 사이드바 + : 빈 상태로
+    /// 타임라인 + : 빈 상태로
     func newSource() {
         selectedClipID = nil
         closeSource()
@@ -146,7 +152,7 @@ final class AppModel {
         }
     }
 
-    /// 사이드바에서 고른 구간: 원본이 이미 열려 있으면 범위만, 아니면 열면서
+    /// 타임라인에서 고른 구간: 원본이 이미 열려 있으면 범위만, 아니면 열면서
     private func load(_ id: Clip.ID) {
         guard let clip = clips.first(where: { $0.id == id }) else { return }
         if clip.url == url && duration > 0 {
@@ -177,40 +183,77 @@ final class AppModel {
 
     // MARK: - 자르기
 
-    /// 지금 구간을 사이드바에 새로 넣는다 (영상은 그대로 두고 또 자를 수 있다)
+    /// 지금 구간을 타임라인 끝에 넣는다 (영상은 그대로 두고 또 자를 수 있다)
     func cut() {
         guard let url, outPoint > inPoint else { return }
         let clip = Clip(url: url, start: inPoint, end: outPoint)
         clips.append(clip)
-        makeThumbnail(for: clip.id)
+        makeWaveform(for: clip.id)
         selectedClipID = nil
     }
 
     /// 고른 구간을 지금 범위로 고친다
     func applyToSelected() {
         guard let id = selectedClipID, let i = clips.firstIndex(where: { $0.id == id }), let url else { return }
-        let startChanged = clips[i].start != inPoint || clips[i].url != url
+        if clips[i].url != url { laneMakers[id] = nil }
         clips[i].url = url
         clips[i].start = inPoint
         clips[i].end = outPoint
-        if startChanged { makeThumbnail(for: id) }
+        laneKeys[id] = nil  // 영상 줄 그림은 타임라인이 다시 부른다
+        makeWaveform(for: id)
     }
 
     func delete(_ ids: Set<Clip.ID>) {
         clips.removeAll { ids.contains($0.id) }
+        for id in ids {
+            laneImages[id] = nil; laneMakers[id] = nil; laneKeys[id] = nil; waveforms[id] = nil
+        }
         if let id = selectedClipID, ids.contains(id) { selectedClipID = nil }
     }
 
-    func move(from source: IndexSet, to destination: Int) {
-        clips.move(fromOffsets: source, toOffset: destination)
+    /// 타임라인에서 끌어 놓기: id 구간을 target 앞으로 (nil 이면 맨 끝)
+    func moveClip(_ id: Clip.ID, before target: Clip.ID?) {
+        guard id != target, let from = clips.firstIndex(where: { $0.id == id }) else { return }
+        let clip = clips.remove(at: from)
+        if let target, let to = clips.firstIndex(where: { $0.id == target }) {
+            clips.insert(clip, at: to)
+        } else {
+            clips.append(clip)
+        }
     }
 
-    private func makeThumbnail(for id: Clip.ID) {
+    func setGain(_ id: Clip.ID, _ db: Double) {
+        guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
+        clips[i].gain = min(Clip.gainRange.upperBound, max(Clip.gainRange.lowerBound, db))
+    }
+
+    // MARK: - 타임라인 그림·파형
+
+    /// 영상 줄: 구간 폭에 맞춰 count 칸 그림 (확대·축소로 칸 수가 바뀌면 다시)
+    func requestLane(_ id: Clip.ID, count: Int, height: Int) {
+        guard let clip = clips.first(where: { $0.id == id }), count > 0 else { return }
+        let key = "\(clip.url.path)/\(clip.start)/\(clip.end)/\(count)/\(height)"
+        guard laneKeys[id] != key else { return }
+        laneKeys[id] = key
+        // 이미 있는 그림은 새 칸 수에 맞을 때까지 그대로 둔다 (깜빡이지 않게)
+        if laneImages[id]?.count != count { laneImages[id] = Array(repeating: nil, count: count) }
+        let maker = laneMakers[id] ?? Thumbnailer(url: clip.url)
+        laneMakers[id] = maker
+        let times = (0..<count).map { clip.start + (Double($0) + 0.5) / Double(count) * clip.length }
+        maker.strip(times: times, height: height) { [weak self] i, image in
+            guard let self, self.laneKeys[id] == key, var images = self.laneImages[id], i < images.count else { return }
+            images[i] = image
+            self.laneImages[id] = images
+        }
+    }
+
+    private func makeWaveform(for id: Clip.ID) {
         guard let clip = clips.first(where: { $0.id == id }) else { return }
-        let maker = clip.url == url ? (thumbnailer ?? Thumbnailer(url: clip.url)) : Thumbnailer(url: clip.url)
-        maker.image(at: clip.start, height: 240) { [weak self] image in
-            guard let self, let i = self.clips.firstIndex(where: { $0.id == id }) else { return }
-            self.clips[i].thumbnail = image
+        waveforms[id] = nil
+        Waveform.make(url: clip.url, start: clip.start, end: clip.end) { [weak self] peaks in
+            guard let self, let peaks, let now = self.clips.first(where: { $0.id == id }),
+                  now.url == clip.url, now.start == clip.start, now.end == clip.end else { return }
+            self.waveforms[id] = peaks
         }
     }
 

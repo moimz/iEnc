@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import os
 
-/// 영상 한 개의 작은 그림을 뽑는다 (재생바 필름 띠·사이드바 구간 썸네일).
+/// 영상 한 개의 작은 그림을 뽑는다 (재생바 필름 띠·타임라인 영상 줄).
 /// 미리보기 엔진과 따로 파일을 열어 자기 큐에서만 FFmpeg 를 부른다.
 final class Thumbnailer: @unchecked Sendable {
     let url: URL

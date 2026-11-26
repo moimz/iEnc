@@ -5,9 +5,9 @@ struct iEncApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 1010, minHeight: 560)  // 사이드바 200 + 본문 800 (+경계). 최종 크기는 인코딩 설정 완성 후 (Ai/iEnc.md)
+                .frame(minWidth: 1120, minHeight: 640)  // 본문 800 + 인코딩 사이드바 310. 최종 크기는 인코딩 설정 완성 후 (Ai/iEnc.md)
         }
-        .defaultSize(width: 1200, height: 700)
+        .defaultSize(width: 1400, height: 860)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("iEnc에 관하여") {

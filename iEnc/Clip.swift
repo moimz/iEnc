@@ -1,18 +1,15 @@
-import CoreGraphics
 import Foundation
 
-/// 사이드바의 자른 구간 하나: 어느 파일의 어디부터 어디까지
+/// 타임라인의 자른 구간 하나: 어느 파일의 어디부터 어디까지 + 음량
 struct Clip: Identifiable, Equatable {
     let id = UUID()
     var url: URL
     var start: Double
     var end: Double
-    /// 시작 프레임 그림 (나중에 채워짐)
-    var thumbnail: CGImage?
+    /// 음량 조절 (dB, 0 = 그대로). 변환할 때 적용 (아직 변환 기능 없음)
+    var gain: Double = 0
 
     var length: Double { max(0, end - start) }
 
-    static func == (a: Clip, b: Clip) -> Bool {
-        a.id == b.id && a.url == b.url && a.start == b.start && a.end == b.end && a.thumbnail === b.thumbnail
-    }
+    static let gainRange: ClosedRange<Double> = -30...12
 }

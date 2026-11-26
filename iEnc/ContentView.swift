@@ -2,21 +2,30 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 창: 왼쪽 사이드바(자른 구간) · 오른쪽 [미리보기 | 영상 정보] / 구간 선택 바 / 인코딩 설정
+/// 창: 본문 [미리보기 | 영상 정보] / 구간 선택 바 / 타임라인(자른 구간) + 오른쪽 사이드바(인코딩 설정, 본문을 줄임)
 struct ContentView: View {
     @State private var model = AppModel()
     @FocusState private var focused: Bool
     @AppStorage("hardwareDecoding") private var hardware = false
+    @AppStorage("showEncode") private var showEncode = true
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        NavigationSplitView {
-            ClipSidebar(model: model)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
-        } detail: {
-            // 본문 최소 800 (인코딩 설정 네 칸이 눌리지 않는 폭)
-            EditorPane(model: model)
-                .frame(minWidth: 800)
+        // 본문 최소 800
+        EditorPane(model: model)
+            .frame(minWidth: 800)
+            .inspector(isPresented: $showEncode) {
+                EncodeSettingsView(model: model)
+                    .inspectorColumnWidth(min: 290, ideal: 310, max: 380)
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showEncode.toggle() } label: {
+                        Label("인코딩 설정", systemImage: "sidebar.right")
+                    }
+                    .help("인코딩 설정 열기·닫기")
+                }
+            }
             .focusable()
             .focusEffectDisabled()
             .focused($focused)
@@ -34,7 +43,9 @@ struct ContentView: View {
                 }
                 return .handled
             }
-        }
+            .onDeleteCommand {
+                if let id = model.selectedClipID { model.delete([id]) }
+            }
         .navigationTitle(model.url?.lastPathComponent ?? "iEnc")
         .onChange(of: hardware) { model.hardware = hardware }
         .onAppear {
@@ -61,7 +72,7 @@ struct ContentView: View {
     }
 }
 
-/// [미리보기 | 영상 정보] + 구간 선택 바 + 자르기 단추 + 인코딩 설정. 영상이 없으면 불러오기 안내.
+/// [미리보기 | 영상 정보] + 구간 선택 바 + 자르기 단추 + 타임라인. 영상이 없으면 불러오기 안내.
 /// 영상 정보는 미리보기 옆에 둔다 (미리보기는 좌우 레터박스가 많이 남아서 그 자리를 쓴다)
 struct EditorPane: View {
     @Bindable var model: AppModel
@@ -94,8 +105,8 @@ struct EditorPane: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }
-            EncodeSettingsView(model: model)
-                .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            ClipTimeline(model: model)
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
             if case .success(let url) = result { model.openNew(url) }
@@ -161,7 +172,7 @@ struct EditorPane: View {
     }
 }
 
-/// 구간 길이 · 자르기 단추. 사이드바에서 구간을 골랐으면 "구간 적용" 도
+/// 구간 길이 · 자르기 단추. 타임라인에서 구간을 골랐으면 "구간 적용" 도
 struct CutActions: View {
     @Bindable var model: AppModel
 
@@ -177,7 +188,7 @@ struct CutActions: View {
             if model.selectedClip != nil {
                 Button("구간 적용") { model.applyToSelected() }
                     .disabled(!model.selectionChanged)
-                    .help("사이드바에서 고른 구간을 지금 범위로 고칩니다")
+                    .help("타임라인에서 고른 구간을 지금 범위로 고칩니다")
                 Button("새 구간으로 자르기") { model.cut() }
                     .keyboardShortcut("k", modifiers: .command)
             } else {
@@ -188,97 +199,10 @@ struct CutActions: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut("k", modifiers: .command)
-                .help("지금 구간을 사이드바에 넣습니다 (⌘K)")
+                .help("지금 구간을 타임라인 끝에 넣습니다 (⌘K)")
             }
         }
         .disabled(model.duration <= 0)
-    }
-}
-
-/// 사이드바: 자른 구간 목록 (끌어서 순서 바꾸기) + 맨 아래 영상 추가
-struct ClipSidebar: View {
-    @Bindable var model: AppModel
-
-    var body: some View {
-        VStack(spacing: 0) {
-            list
-            // 목록 아래 따로 둔다 (겹쳐 띄우면 마지막 구간을 가린다)
-            Divider()
-            Button { model.newSource() } label: {
-                Label("영상 추가", systemImage: "plus")
-                    .frame(maxWidth: .infinity)
-            }
-            .controlSize(.large)
-            .padding(10)
-            .help("빈 화면에서 새 영상을 불러옵니다")
-        }
-    }
-
-    private var list: some View {
-        List(selection: $model.selectedClipID) {
-            ForEach(model.clips) { clip in
-                ClipRow(clip: clip)
-                    .tag(clip.id)
-            }
-            .onMove { model.move(from: $0, to: $1) }
-        }
-        .overlay {
-            if model.clips.isEmpty {
-                Text("자른 구간이 여기에 쌓입니다")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding()
-            }
-        }
-        .onDeleteCommand {
-            if let id = model.selectedClipID { model.delete([id]) }
-        }
-        .contextMenu(forSelectionType: Clip.ID.self) { ids in
-            Button("삭제") { model.delete(ids) }
-        }
-    }
-}
-
-/// 구간 한 줄: 16:10 썸네일 + 파일 이름 + 시작–끝
-struct ClipRow: View {
-    let clip: Clip
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // 16:10 칸을 먼저 정하고 그림은 그 안을 채우게 (그림 크기가 칸을 넓히지 않도록 overlay 로)
-            Color.black
-                .aspectRatio(16.0 / 10.0, contentMode: .fit)
-                .frame(maxWidth: .infinity)
-                .overlay {
-                    if let image = clip.thumbnail {
-                        Image(decorative: image, scale: 2)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else {
-                        ProgressView().controlSize(.small)
-                    }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    Text(FF.clock(clip.length))
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 3))
-                        .foregroundStyle(.white)
-                        .padding(4)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-
-            Text(clip.url.lastPathComponent)
-                .font(.caption.weight(.medium))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Text("\(FF.clock(clip.start)) – \(FF.clock(clip.end))")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 4)
     }
 }
 
