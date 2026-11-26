@@ -101,9 +101,13 @@ struct EditorPane: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                     .disabled(model.duration <= 0)
+                // 구간 끝 시각 줄과 붙어 보이지 않게 선 + 다른 배경으로 나눈다
+                Divider()
+                    .padding(.top, 6)
                 CutActions(model: model)
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
+                    .padding(.vertical, 8)
+                    .background(Color(white: 0.15))
             }
             Divider()
             ClipTimeline(model: model)

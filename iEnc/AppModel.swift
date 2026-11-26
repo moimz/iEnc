@@ -13,8 +13,8 @@ final class AppModel {
     var clips: [Clip] = []
     /// 타임라인 영상 줄 그림 (구간마다)
     var laneImages: [Clip.ID: [CGImage?]] = [:]
-    /// 타임라인 소리 줄 파형 (구간마다, 0~1)
-    var waveforms: [Clip.ID: [Float]] = [:]
+    /// 타임라인 소리 줄 파형 (구간마다)
+    var waveforms: [Clip.ID: WavePeaks] = [:]
     /// 인코딩 설정 (화면 아래. 아직 변환 기능 없음)
     var encode = EncodeSettings()
     /// 타임라인에서 고른 구간. 고르면 그 원본과 범위를 연다
@@ -251,9 +251,11 @@ final class AppModel {
         guard let clip = clips.first(where: { $0.id == id }) else { return }
         waveforms[id] = nil
         Waveform.make(url: clip.url, start: clip.start, end: clip.end) { [weak self] peaks in
-            guard let self, let peaks, let now = self.clips.first(where: { $0.id == id }),
-                  now.url == clip.url, now.start == clip.start, now.end == clip.end else { return }
-            self.waveforms[id] = peaks
+            // 구간이 지워졌거나 범위가 바뀌었으면 그만 만든다
+            guard let self, let now = self.clips.first(where: { $0.id == id }),
+                  now.url == clip.url, now.start == clip.start, now.end == clip.end else { return false }
+            if let peaks { self.waveforms[id] = peaks }
+            return true
         }
     }
 

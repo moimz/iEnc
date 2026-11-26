@@ -11,6 +11,7 @@ struct ClipTimeline: View {
 
     static let videoHeight: CGFloat = 52
     static let audioHeight: CGFloat = 38
+    static let rulerHeight: CGFloat = 16
     private let spacing: CGFloat = 3
     private let addWidth: CGFloat = 76
     /// 최대 확대: 1초에 80pt
@@ -25,15 +26,20 @@ struct ClipTimeline: View {
                 let fitPPS = total > 0 ? Double(usable) / total : 1
                 let maxZoom = max(1, maxPPS / fitPPS)
                 let pps = fitPPS * exp(zoom * log(maxZoom))
+                let widths = model.clips.map { max(28, CGFloat($0.length * pps)) }
                 ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: spacing) {
-                        ForEach(model.clips) { clip in
-                            ClipBlock(model: model, clip: clip, width: max(28, CGFloat(clip.length * pps)))
+                    VStack(alignment: .leading, spacing: 3) {
+                        TimeRuler(lengths: model.clips.map(\.length), widths: widths, spacing: spacing, pps: pps)
+                            .frame(width: widths.reduce(0, +) + spacing * CGFloat(max(0, widths.count - 1)), height: Self.rulerHeight)
+                        HStack(alignment: .top, spacing: spacing) {
+                            ForEach(Array(model.clips.enumerated()), id: \.element.id) { i, clip in
+                                ClipBlock(model: model, clip: clip, width: widths[i])
+                            }
+                            addTile
                         }
-                        addTile
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 6)
                 }
                 .scrollIndicators(.visible)
                 .overlay {
@@ -54,7 +60,7 @@ struct ClipTimeline: View {
                         .onEnded { _ in pinchBase = nil }
                 )
             }
-            .frame(height: Self.videoHeight + Self.audioHeight + 2 + 16 + 12)
+            .frame(height: Self.rulerHeight + 3 + Self.videoHeight + Self.audioHeight + 2 + 12 + 12)
         }
         .background(Color(white: 0.11))
     }
@@ -116,6 +122,67 @@ struct ClipTimeline: View {
             model.moveClip(id, before: nil)
             return true
         }
+    }
+}
+
+/// 타임라인 위 시간 눈금자: 구간을 이어 붙인 결과(변환한 영상)의 시각. 확대 정도에 맞춰 눈금 간격을 고른다.
+/// 구간 폭은 짧으면 최소 폭이 있어 시간과 딱 비례하지 않으므로, 구간마다 그 안에서 시각 → x 를 바꾼다
+private struct TimeRuler: View {
+    let lengths: [Double]
+    let widths: [CGFloat]
+    let spacing: CGFloat
+    let pps: Double
+
+    /// 글자 눈금 간격 후보 (초)
+    private static let steps: [Double] = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200]
+
+    var body: some View {
+        Canvas { ctx, size in
+            guard !lengths.isEmpty else { return }
+            let major = Self.steps.first { $0 * pps >= 72 } ?? 7200
+            let minor = major / (major >= 60 && Int(major) % 300 == 0 ? 5 : (Int(major) % 5 == 0 ? 5 : 2))
+            let total = lengths.reduce(0, +)
+            // 시각 → x
+            var starts: [(t: Double, x: CGFloat)] = []
+            var t = 0.0, x: CGFloat = 0
+            for i in lengths.indices {
+                starts.append((t, x))
+                t += lengths[i]; x += widths[i] + spacing
+            }
+            func xAt(_ time: Double) -> CGFloat {
+                var i = starts.count - 1
+                while i > 0 && starts[i].t > time { i -= 1 }
+                let len = max(0.000_001, lengths[i])
+                return starts[i].x + CGFloat(min(1, (time - starts[i].t) / len)) * widths[i]
+            }
+            let color = Color.white.opacity(0.35)
+            var ticks = Path()
+            var k = 0.0
+            while k <= total + 0.000_1 {
+                let px = xAt(k)
+                let isMajor = abs((k / major).rounded() * major - k) < 0.001
+                ticks.move(to: CGPoint(x: px + 0.5, y: size.height))
+                ticks.addLine(to: CGPoint(x: px + 0.5, y: size.height - (isMajor ? 7 : 3)))
+                if isMajor {
+                    ctx.draw(Text(Self.label(k)).font(.system(size: 9, weight: .medium).monospacedDigit()).foregroundStyle(.secondary),
+                             at: CGPoint(x: px + 3, y: size.height - 8), anchor: .bottomLeading)
+                }
+                k += minor
+            }
+            ctx.stroke(ticks, with: .color(color), lineWidth: 1)
+            // 구간 경계 표시
+            var edges = Path()
+            for s in starts.dropFirst() {
+                edges.move(to: CGPoint(x: s.x - spacing / 2, y: 0))
+                edges.addLine(to: CGPoint(x: s.x - spacing / 2, y: size.height))
+            }
+            ctx.stroke(edges, with: .color(.yellow.opacity(0.35)), lineWidth: 1)
+        }
+    }
+
+    private static func label(_ t: Double) -> String {
+        let s = Int(t.rounded())
+        return String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
     }
 }
 
@@ -222,22 +289,31 @@ private struct ClipBlock: View {
         let gain = dragGain ?? clip.gain
         return Canvas { ctx, size in
             ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(red: 0.10, green: 0.17, blue: 0.24)))
-            if let peaks, !peaks.isEmpty {
-                // 한 픽셀 칸마다 그 사이 묶음들의 최댓값 (아래에서 위로)
+            if let wave = peaks, !wave.peak.isEmpty {
+                // 한 픽셀 칸마다 그 사이 묶음들의 최댓값. 연한 색 = 순간 최댓값(peak), 진한 색 = 평균 세기(RMS)
+                let n = wave.peak.count
                 let cols = max(1, Int(size.width))
-                var path = Path()
-                for c in 0..<cols {
-                    let a = c * peaks.count / cols
-                    let b = max(a + 1, (c + 1) * peaks.count / cols)
-                    var m: Float = 0
-                    for k in a..<min(b, peaks.count) where peaks[k] > m { m = peaks[k] }
-                    // dB 눈금으로 그린다 (조용한 소리도 보이게): −48 dBFS = 바닥, 0 dBFS = 꼭대기
-                    let db = m > 0 ? 20 * log10(Double(m)) + gain : -100
-                    let v = min(1, max(0, (db + 48) / 48))
-                    let bar = max(0.5, v * Double(size.height))
-                    path.addRect(CGRect(x: CGFloat(c), y: size.height - bar, width: 1, height: bar))
+                let filled = wave.done ? cols : Int(Double(cols) * wave.progress)
+                // 진폭의 제곱근 눈금: dB 눈금은 방송 소리가 늘 꽉 차 보이고, 그냥 진폭은 대사가 너무 작게 보인다
+                let amp = pow(10, gain / 20)
+                func bar(_ v: Float) -> CGFloat {
+                    CGFloat(min(1, (Double(v) * amp).squareRoot())) * size.height
                 }
-                ctx.fill(path, with: .color(Color(red: 0.35, green: 0.72, blue: 0.95)))
+                var peakPath = Path(), rmsPath = Path()
+                for c in 0..<filled {
+                    let a = c * n / cols
+                    let b = min(n, max(a + 1, (c + 1) * n / cols))
+                    var p: Float = 0, r: Float = 0
+                    for k in a..<b {
+                        if wave.peak[k] > p { p = wave.peak[k] }
+                        if wave.rms[k] > r { r = wave.rms[k] }
+                    }
+                    let ph = max(0.5, bar(p)), rh = max(0.5, bar(r))
+                    peakPath.addRect(CGRect(x: CGFloat(c), y: size.height - ph, width: 1, height: ph))
+                    rmsPath.addRect(CGRect(x: CGFloat(c), y: size.height - rh, width: 1, height: rh))
+                }
+                ctx.fill(peakPath, with: .color(Color(red: 0.35, green: 0.72, blue: 0.95).opacity(0.45)))
+                ctx.fill(rmsPath, with: .color(Color(red: 0.42, green: 0.78, blue: 1.0)))
             }
             // 음량 선
             let ly = size.height * y(gain)
@@ -246,7 +322,8 @@ private struct ClipBlock: View {
         }
         .frame(width: width, height: h)
         .overlay {
-            if peaks == nil { ProgressView().controlSize(.mini) }
+            // 아직 거의 못 채웠으면 돌아가는 표시 (NAS 의 긴 구간은 수십 초 걸린다)
+            if peaks.map({ !$0.done && $0.progress < 0.03 }) ?? true { ProgressView().controlSize(.mini) }
         }
         .overlay(alignment: .topTrailing) {
             if dragGain != nil || clip.gain != 0 {

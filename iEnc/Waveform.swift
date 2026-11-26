@@ -1,21 +1,41 @@
 import Foundation
+import os
+import QuartzCore
 
-/// 구간의 소리 파형: 소리만 풀어서(영상은 안 풂) 작은 묶음마다 가장 큰 진폭(0~1)을 모은다.
-/// 타임라인 소리 줄에 그린다. 파일마다 따로 열고, 여러 구간은 한 큐에서 차례로 만든다
+/// 구간의 소리 파형: 소리만 풀어서(영상은 안 풂) 작은 묶음마다 최댓값(peak)과 평균 세기(RMS)를 모은다.
+/// 타임라인 소리 줄에 그린다. 소리가 영상 사이사이에 섞여 있어 결국 파일을 거의 다 읽는다
+/// (NAS 의 1.5GB MP4 ≈ 20초) → 푸는 동안 0.3초마다 중간 결과를 넘겨 왼쪽부터 차오르게 그린다.
+/// 구간마다 따로(동시에 둘까지) 만든다: 긴 구간 하나가 다른 구간을 막지 않게
+struct WavePeaks: Equatable {
+    var peak: [Float]
+    var rms: [Float]
+    /// 다 만들었는지 (false 면 아직 푸는 중, 채워진 앞부분만 그림)
+    var done: Bool
+    /// 어디까지 채웠는지 (0~1)
+    var progress: Double
+}
+
 enum Waveform {
-    private static let queue = DispatchQueue(label: "iEnc.waveform", qos: .utility)
+    private static let limit = DispatchSemaphore(value: 2)
 
     /// 묶음 수: 초당 25개 (긴 구간은 최대 20000개)
     static func bucketCount(for length: Double) -> Int { min(20000, max(200, Int(length * 25))) }
 
-    static func make(url: URL, start: Double, end: Double, completion: @escaping ([Float]?) -> Void) {
-        queue.async {
-            let peaks = compute(url: url, start: start, end: end)
-            DispatchQueue.main.async { completion(peaks) }
+    /// update 는 중간 결과와 마지막 결과(done = true)를 메인 스레드로 여러 번 받는다. false 를 돌려주면 그만 만든다
+    static func make(url: URL, start: Double, end: Double, update: @escaping (WavePeaks?) -> Bool) {
+        DispatchQueue.global(qos: .utility).async {
+            limit.wait()
+            defer { limit.signal() }
+            let keep = OSAllocatedUnfairLock(initialState: true)
+            let result = compute(url: url, start: start, end: end) { partial in
+                DispatchQueue.main.async { if !update(partial) { keep.withLock { $0 = false } } }
+                return keep.withLock { $0 }
+            }
+            DispatchQueue.main.async { _ = update(result) }
         }
     }
 
-    private static func compute(url: URL, start: Double, end: Double) -> [Float]? {
+    private static func compute(url: URL, start: Double, end: Double, partial: (WavePeaks) -> Bool) -> WavePeaks? {
         let length = end - start
         guard length > 0 else { return nil }
         var fmt: UnsafeMutablePointer<AVFormatContext>?
@@ -24,7 +44,9 @@ enum Waveform {
         avformat_find_stream_info(ctx, nil)
         let index = av_find_best_stream(ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nil, 0)
         guard index >= 0, let st = ctx.pointee.streams[Int(index)], let par = st.pointee.codecpar,
-              let codec = avcodec_find_decoder(par.pointee.codec_id) else { return [] }  // 소리 없음 = 빈 파형
+              let codec = avcodec_find_decoder(par.pointee.codec_id) else {
+            return WavePeaks(peak: [], rms: [], done: true, progress: 1)  // 소리 없음 = 빈 파형
+        }
         // 소리 스트림만 읽게 나머지는 버린다
         for i in 0..<Int(ctx.pointee.nb_streams) where i != Int(index) {
             ctx.pointee.streams[i]?.pointee.discard = AVDISCARD_ALL
@@ -43,6 +65,14 @@ enum Waveform {
 
         let count = bucketCount(for: length)
         var peaks = [Float](repeating: 0, count: count)
+        var squares = [Double](repeating: 0, count: count)
+        var samples = [Int](repeating: 0, count: count)
+        func snapshot(done: Bool) -> WavePeaks {
+            let rms = (0..<count).map { samples[$0] > 0 ? Float((squares[$0] / Double(samples[$0])).squareRoot()) : 0 }
+            return WavePeaks(peak: peaks.map { min(1, $0) }, rms: rms.map { min(1, $0) }, done: done,
+                             progress: done ? 1 : max(0, min(1, (lastTime - start) / length)))
+        }
+        var lastSent = CACurrentMediaTime()
         var pkt = av_packet_alloc()
         var frame = av_frame_alloc()
         var swr: OpaquePointer?
@@ -87,8 +117,11 @@ enum Waveform {
                 let t = t0 + Double(i) * step
                 guard t >= start, t < end else { continue }
                 let b = min(count - 1, Int((t - start) * scale))
-                let v = abs(mono[i])
+                let x = mono[i]
+                let v = abs(x)
                 if v > peaks[b] { peaks[b] = v }
+                squares[b] += Double(x * x)
+                samples[b] += 1
             }
         }
 
@@ -97,7 +130,11 @@ enum Waveform {
             guard pkt!.pointee.stream_index == index else { continue }
             guard avcodec_send_packet(c, pkt) >= 0 else { continue }
             while !done, avcodec_receive_frame(c, frame) == 0 { take(frame!) }
+            if CACurrentMediaTime() - lastSent > 0.3 {
+                lastSent = CACurrentMediaTime()
+                if !partial(snapshot(done: false)) { return nil }
+            }
         }
-        return peaks.map { min(1, $0) }
+        return snapshot(done: true)
     }
 }
