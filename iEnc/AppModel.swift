@@ -34,7 +34,7 @@ final class AppModel {
     /// 재생바 필름 띠 그림 (자리마다, 아직 안 뽑힌 칸은 nil)
     var strip: [CGImage?] = []
     /// 하드웨어(VideoToolbox) 디코딩 강제. 끄면 소프트웨어 (AV1 만 늘 하드웨어)
-    var hardware = false {
+    var hardware = UserDefaults.standard.bool(forKey: "hardwareDecoding") {
         didSet { if let url, oldValue != hardware { open(url, range: (inPoint, outPoint)) } }
     }
 

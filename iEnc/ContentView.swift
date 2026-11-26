@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var model = AppModel()
     @FocusState private var focused: Bool
     @AppStorage("showInfo") private var showInfo = false
+    @AppStorage("hardwareDecoding") private var hardware = false
 
     var body: some View {
         NavigationSplitView {
@@ -44,6 +45,7 @@ struct ContentView: View {
             }
         }
         .navigationTitle(model.url?.lastPathComponent ?? "iEnc")
+        .onChange(of: hardware) { model.hardware = hardware }
         .onAppear {
             focused = true
             if let bench = Bench.arguments { Bench.run(model: model, list: bench.list, out: bench.out) }
@@ -292,10 +294,6 @@ struct InfoPanel: View {
                     }
                     if model.url != nil {
                         SectionView(title: "미리보기 진단", rows: diagnostics)
-                        Toggle("하드웨어 디코딩 (VideoToolbox)", isOn: $model.hardware)
-                            .toggleStyle(.checkbox)
-                            .font(.caption)
-                            .help("기본은 소프트웨어 (탐색이 더 빠름, AV1 만 늘 하드웨어). 켜면 VideoToolbox 로 풉니다")
                     }
                 }
                 .padding(10)
@@ -347,10 +345,13 @@ struct SectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.subheadline.weight(.semibold))
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 2) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 3) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                     GridRow {
-                        Text(row.0).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+                        // 라벨 칸 폭을 넉넉히 고정 (섹션마다 같은 폭이라 줄이 맞는다)
+                        Text(row.0).foregroundStyle(.secondary)
+                            .frame(width: 104, alignment: .trailing)
+                            .gridColumnAlignment(.trailing)
                         Text(row.1).fixedSize(horizontal: false, vertical: true)
                     }
                     .font(.caption)

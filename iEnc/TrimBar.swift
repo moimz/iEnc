@@ -7,12 +7,12 @@ struct TrimBar: View {
     /// 손잡이를 잡은 자리와 구간 경계의 차이 (끌기 시작할 때 정함 → 잡은 곳에서 튀지 않게)
     @State private var grabOffset: CGFloat?
 
-    private let barHeight: CGFloat = 64
-    private let playWidth: CGFloat = 56
-    private let handleWidth: CGFloat = 14
-    private let border: CGFloat = 4
-    private let nudgeHeight: CGFloat = 26
-    private let nudgeWidth: CGFloat = 430
+    private let barHeight: CGFloat = 40
+    private let playWidth: CGFloat = 44
+    private let handleWidth: CGFloat = 12
+    private let border: CGFloat = 3
+    private let nudgeHeight: CGFloat = 22
+    private let nudgeWidth: CGFloat = 330
 
     var body: some View {
         GeometryReader { geo in
@@ -46,7 +46,7 @@ struct TrimBar: View {
         HStack(spacing: 8) {
             Button { model.togglePlay() } label: {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 26, weight: .regular))
+                    .font(.system(size: 18, weight: .regular))
                     .frame(width: playWidth - 8, height: barHeight)
                     .contentShape(Rectangle())
             }
@@ -59,8 +59,8 @@ struct TrimBar: View {
         .padding(.leading, 8)
         .padding(.trailing, 8)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(white: 0.13)))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(white: 0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
     }
 
     /// 손잡이까지 들어가는 영역: [손잡이 폭][필름 띠][손잡이 폭]. 손잡이가 이 틀 밖으로 삐져나가지 않게 한다
@@ -113,7 +113,7 @@ struct TrimBar: View {
                 .allowsHitTesting(false)
 
             // 노란 구간 테두리 (손잡이 바깥 끝까지)
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: 5)
                 .strokeBorder(Color.yellow, lineWidth: border)
                 .frame(width: xOut - xIn + handleWidth * 2, height: barHeight)
                 .offset(x: xIn - handleWidth)
@@ -144,13 +144,13 @@ struct TrimBar: View {
 
     private func handle(isIn: Bool) -> some View {
         UnevenRoundedRectangle(
-            topLeadingRadius: isIn ? 6 : 0, bottomLeadingRadius: isIn ? 6 : 0,
-            bottomTrailingRadius: isIn ? 0 : 6, topTrailingRadius: isIn ? 0 : 6
+            topLeadingRadius: isIn ? 5 : 0, bottomLeadingRadius: isIn ? 5 : 0,
+            bottomTrailingRadius: isIn ? 0 : 5, topTrailingRadius: isIn ? 0 : 5
         )
         .fill(Color.yellow)
         .frame(width: handleWidth, height: barHeight)
         .overlay(
-            Capsule().fill(Color.black.opacity(0.55)).frame(width: 2.5, height: 18)
+            Capsule().fill(Color.black.opacity(0.55)).frame(width: 2, height: 12)
         )
         .contentShape(Rectangle())
         .pointerStyle(.columnResize)
@@ -173,20 +173,19 @@ struct TrimBar: View {
             }
     }
 
-    // MARK: - 시각 조절 (−10 −1 −0.1 · 시각 · +0.1 +1 +10)
+    // MARK: - 시각 조절  −[10|1|0.1] 시각 [0.1|1|10]+
 
     private func nudge(time t: Double, anchor: CGFloat, total: CGFloat, change: @escaping (Double) -> Void) -> some View {
         let half = nudgeWidth / 2
         let center = min(max(anchor, half), max(half, total - half))
-        return HStack(spacing: 3) {
-            ForEach([-10.0, -1, -0.1], id: \.self) { d in NudgeButton(delta: d, action: change) }
+        return HStack(spacing: 6) {
+            NudgeGroup(sign: -1, action: change)
             Text(FF.clock(t))
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.yellow)
                 .lineLimit(1)
                 .fixedSize()
-                .padding(.horizontal, 6)
-            ForEach([0.1, 1.0, 10], id: \.self) { d in NudgeButton(delta: d, action: change) }
+            NudgeGroup(sign: 1, action: change)
         }
         .frame(width: nudgeWidth, height: nudgeHeight)
         .position(x: center, y: nudgeHeight / 2)
@@ -194,22 +193,37 @@ struct TrimBar: View {
     }
 }
 
-private struct NudgeButton: View {
-    let delta: Double
+/// 한 덩어리로 붙은 초 단추: −[10|1|0.1] 또는 [0.1|1|10]+ (가까운 쪽이 작은 값)
+private struct NudgeGroup: View {
+    let sign: Double
     let action: (Double) -> Void
 
+    private var steps: [Double] { sign < 0 ? [10, 1, 0.1] : [0.1, 1, 10] }
+
     var body: some View {
-        Button { action(delta) } label: {
-            Text(label)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .frame(minWidth: 34)
+        HStack(spacing: 3) {
+            if sign < 0 { symbol }
+            HStack(spacing: 0) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
+                    if i > 0 { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 12) }
+                    Button { action(sign * step) } label: {
+                        Text(step < 1 ? "0.1" : String(format: "%.0f", step))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .frame(width: 30, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("\(sign < 0 ? "−" : "+")\(step < 1 ? "0.1" : String(format: "%.0f", step))초")
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+            if sign > 0 { symbol }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
     }
 
-    private var label: String {
-        let n = abs(delta) < 1 ? String(format: "%.1f", abs(delta)) : String(format: "%.0f", abs(delta))
-        return (delta < 0 ? "−" : "+") + n
+    private var symbol: some View {
+        Text(sign < 0 ? "−" : "+")
+            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.secondary)
     }
 }
