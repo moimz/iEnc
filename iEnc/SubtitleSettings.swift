@@ -130,8 +130,10 @@ struct SubtitleSections: View {
         } label: {
             Text("자막 트랙").padding(.leading, 16)
         }
-        // 접히는 칸 안의 줄은 높이가 빠듯해, 메뉴 단추에 마우스를 올리면 생기는 배경 위쪽이 잘린다
-        .padding(.vertical, 4)
+        // 접히는 칸 안의 줄은 높이가 빠듯해, 메뉴 단추에 마우스를 올리면 생기는 배경 위쪽이 잘린다.
+        // 구간 이름과는 넉넉히, 아래 외부 자막 줄과는 좁게
+        .padding(.top, 8)
+        .padding(.bottom, 2)
     }
 
     @ViewBuilder
@@ -157,7 +159,8 @@ struct SubtitleSections: View {
         } label: {
             Text("외부 자막").padding(.leading, 16)
         }
-        .padding(.vertical, 4)
+        .padding(.top, 2)
+        .padding(.bottom, 4)
         .fileImporter(isPresented: Binding(get: { pickingFor == clip.id }, set: { if !$0 { pickingFor = nil } }),
                       allowedContentTypes: Self.fileTypes) { result in
             if case .success(let url) = result {
