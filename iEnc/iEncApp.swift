@@ -2,7 +2,11 @@ import SwiftUI
 
 @main
 struct iEncApp: App {
-    init() { SaveLocation.migrate() }
+    init() {
+        SaveLocation.migrate()
+        // 자막 글꼴(나눔·마루부리): 이 앱에서만 쓰게 등록 (설정 › 자막)
+        SubtitleFont.registerBundled()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -41,13 +45,17 @@ struct iEncApp: App {
 }
 
 
-/// 설정 창 (⌘,): 위쪽 탭으로 나눈다 (iRayer 와 같은 모양). 지금은 일반 탭 하나
+/// 설정 창 (⌘,): 위쪽 탭으로 나눈다 (iRayer 와 같은 모양): 일반 · 자막
 struct SettingsView: View {
+    // 시험용: -settings -subtab 으로 자막 탭을 바로 연다
+    @State private var tab = ProcessInfo.processInfo.arguments.contains("-subtab") ? "subtitle" : "general"
+
     var body: some View {
-        TabView {
-            Tab("일반", systemImage: "gearshape") { GeneralSettings() }
+        TabView(selection: $tab) {
+            Tab("일반", systemImage: "gearshape", value: "general") { GeneralSettings() }
+            Tab("자막", systemImage: "captions.bubble", value: "subtitle") { SubtitleStyleSettings() }
         }
-        .frame(width: 520, height: 520)
+        .frame(width: 520, height: 550)
         .background(SettingsWindowStyler())
     }
 }

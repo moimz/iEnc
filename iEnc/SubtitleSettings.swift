@@ -13,11 +13,6 @@ struct SubtitleDraft: Equatable {
 
     var enabled = false
     var mode = Mode.track
-    var font = "Apple SD Gothic Neo"
-    var size = 42.0
-    var outline = true
-    var shadow = false
-    var color = Color.white
 }
 
 /// 구간 하나의 자막 선택
@@ -35,7 +30,6 @@ struct SubtitleSections: View {
     /// 접어 둔 구간 (기본은 모두 펼침)
     @State private var collapsed: Set<Clip.ID> = []
 
-    private static let fonts = NSFontManager.shared.availableFontFamilies
     private static let fileTypes: [UTType] = ["smi", "sami", "srt", "ass", "ssa", "vtt", "sub", "sup"]
         .compactMap { UTType(filenameExtension: $0) } + [.plainText, .data]
 
@@ -69,15 +63,9 @@ struct SubtitleSections: View {
                 }
                 .pickerStyle(.segmented)
                 if model.subtitle.mode == .burn {
-                    Picker("글꼴", selection: d.font) {
-                        ForEach(Self.fonts, id: \.self) { Text($0).tag($0) }
-                    }
-                    LabeledContent("크기") {
-                        Stepper("\(Int(model.subtitle.size)) pt", value: d.size, in: 12...120, step: 2)
-                    }
-                    Toggle("외곽선", isOn: d.outline)
-                    Toggle("그림자", isOn: d.shadow)
-                    ColorPicker("자막 색", selection: d.color, supportsOpacity: false)
+                    Text("자막 모양(글꼴·가장자리·크기)은 설정(⌘,) › 자막에서 정합니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             notice
