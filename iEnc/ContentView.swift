@@ -82,6 +82,7 @@ struct EditorPane: View {
                     .frame(width: infoWidth)
             }
             .frame(minHeight: 200, maxHeight: .infinity)
+            Divider()
 
             // 아래는 높이 고정: 창이 줄면 위 미리보기만 준다
             if model.url != nil {
