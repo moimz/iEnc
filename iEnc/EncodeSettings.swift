@@ -115,7 +115,7 @@ struct EncodeSettings: Equatable {
 /// 앱 설정(⌘,)에 두는 저장 방식: 위치 · 파일 이름 규칙
 enum SaveLocation: String, CaseIterable, Identifiable {
     case source = "원본과 같은 폴더"
-    case folder = "정한 폴더"
+    case folder = "특정 폴더"
     case ask = "매번 묻기"
     var id: Self { self }
 }

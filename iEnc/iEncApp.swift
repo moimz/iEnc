@@ -121,13 +121,13 @@ private struct GeneralSettings: View {
                     Text("절반").tag(0.5)
                     Text("적게 (4분의 1)").tag(0.25)
                 }
-                Text("줄이면 변환에 쓰는 CPU 스레드 수를 줄여, 변환 중에도 다른 앱이 덜 느려집니다. CPU 인코더(x265·x264)는 그만큼 느려지고, 하드웨어 인코딩은 압축을 미디어 엔진이 해서 거의 상관없습니다.")
+                Text("인코딩할 때 사용할 CPU 스레드 수를 설정합니다. 하드웨어 인코딩에는 영향이 없고, CPU 인코딩(x265·x264)의 변환 속도에 영향을 줍니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Section("미리보기") {
                 Toggle("하드웨어 디코딩 (VideoToolbox)", isOn: $hardware)
-                Text("기본은 소프트웨어 디코딩입니다. 탐색(구간 끝을 끌 때 그 프레임 보이기)이 더 빠릅니다. AV1 은 늘 하드웨어로 풉니다.")
+                Text("기본적으로 탐색 속도 향상을 위해 소프트웨어 디코딩을 사용합니다. 다만 AV1 같이 소프트웨어 디코딩이 되지 않는 형식은 항상 하드웨어 디코딩을 사용합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
