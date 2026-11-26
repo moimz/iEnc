@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct iEncApp: App {
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     init() {
         SaveLocation.migrate()
         // 자막 글꼴(나눔·마루부리): 이 앱에서만 쓰게 등록 (설정 › 자막)
@@ -45,15 +46,44 @@ struct iEncApp: App {
 }
 
 
-/// 설정 창 (⌘,): 위쪽 탭으로 나눈다 (iRayer 와 같은 모양): 일반 · 자막
+/// Finder "다음으로 열기"·Dock 에 끌어 놓기로 온 파일을 받는다. 여러 개를 고르면 한 번에 온다
+/// (SwiftUI onOpenURL 은 앱이 꺼진 상태에서 여러 파일을 열면 첫 파일만 받았다, 2026-11-27)
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, open urls: [URL]) {
+        OpenInbox.shared.put(urls.filter(\.isFileURL))
+    }
+}
+
+/// 받아 둔 파일. 창(ContentView)이 뜨면 가져가 영상 불러오기와 같게 연다
+@Observable
+final class OpenInbox {
+    static let shared = OpenInbox()
+    private var urls: [URL] = []
+    /// 바뀌면 창이 가져가도록 알리는 번호
+    private(set) var count = 0
+
+    func put(_ new: [URL]) {
+        guard !new.isEmpty else { return }
+        urls += new
+        count += 1
+    }
+
+    func take() -> [URL] {
+        defer { urls = [] }
+        return urls
+    }
+}
+
+/// 설정 창 (⌘,): 위쪽 탭으로 나눈다 (iRayer 와 같은 모양): 일반 · 자막 · 파일 연결
 struct SettingsView: View {
     // 시험용: -settings -subtab 으로 자막 탭을 바로 연다
-    @State private var tab = ProcessInfo.processInfo.arguments.contains("-subtab") ? "subtitle" : "general"
+    @State private var tab = ProcessInfo.processInfo.arguments.contains("-subtab") ? "subtitle" : (ProcessInfo.processInfo.arguments.contains("-filetab") ? "files" : "general")
 
     var body: some View {
         TabView(selection: $tab) {
             Tab("일반", systemImage: "gearshape", value: "general") { GeneralSettings() }
             Tab("자막", systemImage: "captions.bubble", value: "subtitle") { SubtitleStyleSettings() }
+            Tab("파일 연결", systemImage: "doc.badge.arrow.up", value: "files") { FileAssociationSettings() }
         }
         .frame(width: 520, height: 550)
         .background(SettingsWindowStyler())

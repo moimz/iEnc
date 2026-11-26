@@ -20,6 +20,11 @@ struct ContentView: View {
         }
         .navigationTitle(model.url?.lastPathComponent ?? "새 프로젝트")
         .focusedSceneValue(\.appModel, model)
+        // Finder 다음으로 열기 · Dock 에 끌어 놓기: 앱 대리자가 받아 둔 파일을 이 창이 가져간다
+        .onAppear { takeOpened() }
+        .onChange(of: OpenInbox.shared.count) { takeOpened() }
+        // 창이 있으면 열기 요청을 이 창이 받는다 (파일마다 새 창을 만들지 않게)
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         // 영상 정보는 영상이 있을 때만: 처음 영상을 열면 저절로 보인다
         .onChange(of: model.url) { old, new in
             if old == nil && new != nil { showInfo = true }
@@ -34,6 +39,11 @@ struct ContentView: View {
         } message: {
             Text("불러온 영상 목록과 자른 구간이 모두 지워집니다. 인코딩 설정은 그대로입니다.")
         }
+    }
+
+    private func takeOpened() {
+        let urls = OpenInbox.shared.take()
+        if !urls.isEmpty { model.importFiles(urls) }
     }
 
     private var detail: some View {

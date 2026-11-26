@@ -208,6 +208,7 @@
 				DEVELOPMENT_TEAM = XSDBV8D2XL;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Support/Info.plist;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/Vendor/ffmpeg/include";
 				INFOPLIST_KEY_CFBundleDisplayName = iEnc;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
@@ -242,6 +243,7 @@
 				DEVELOPMENT_TEAM = XSDBV8D2XL;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Support/Info.plist;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/Vendor/ffmpeg/include";
 				INFOPLIST_KEY_CFBundleDisplayName = iEnc;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";

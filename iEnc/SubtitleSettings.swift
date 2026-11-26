@@ -58,27 +58,14 @@ struct SubtitleSections: View {
                         }
                     }
                 }
-                Picker("자막 방식", selection: d.mode) {
+                Picker(selection: d.mode) {
                     ForEach(SubtitleDraft.Mode.allCases) { Text($0.rawValue).tag($0) }
-                }
+                } label: { InfoLabel("자막 방식", Info.subtitleMode) }
                 .pickerStyle(.segmented)
-                if model.subtitle.mode == .burn {
-                    Text("자막 모양(글꼴·가장자리·크기)은 설정(⌘,) › 자막에서 정합니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
             notice
         } header: {
             Text("자막")
-        } footer: {
-            if model.subtitle.enabled {
-                Text(model.subtitle.mode == .track
-                     ? "자막 트랙: 켜고 끌 수 있는 자막으로 넣습니다 (MKV 는 꾸밈 그대로, MP4·MOV 는 글자만)."
-                     : "자막 입히기: 영상 그림에 새겨 어떤 플레이어에서든 보입니다 (끌 수 없음, 다시 압축할 때만).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 

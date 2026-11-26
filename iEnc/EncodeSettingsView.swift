@@ -260,7 +260,7 @@ private struct JobStatus: View {
 }
 
 /// 설정 이름 옆 ⓘ: 누르면 그 설정이 무엇인지 풀어 쓴 말풍선
-private struct InfoLabel: View {
+struct InfoLabel: View {
     let title: String
     let text: String
     @State private var shown = false
@@ -292,7 +292,12 @@ private struct InfoLabel: View {
 }
 
 /// ⓘ 말풍선 글 (마크다운 굵게 가능)
-private enum Info {
+enum Info {
+    static let subtitleMode = """
+    · **자막 트랙**: 영상에 별도의 자막 트랙으로 자막을 추가합니다. 동영상 플레이어의 자막 설정에 따라 자막을 표시할 수 있습니다.
+    · **자막 입히기**: 영상 자체에 자막을 그림으로 입혀, 자막을 지원하지 않는 동영상 플레이어에서도 자막을 볼 수 있습니다. 단, 동영상 플레이어에서 자막 디자인을 바꿀 수 없고, 미리 정한 자막 디자인(설정 › 자막에서 정할 수 있습니다)으로 고정됩니다.
+    """
+
     static let codec = """
     **어떤 형식으로, 무엇으로 압축할지** 고릅니다.
 
