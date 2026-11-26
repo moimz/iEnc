@@ -214,12 +214,18 @@ struct CutActions: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text("구간 \(FF.clock(model.outPoint - model.inPoint))")
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(.secondary)
             Text("현재 \(FF.clock(model.position))")
                 .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
+            // 지금 자리를 구간 시작·끝으로 (I · O 키와 같음)
+            HStack(spacing: 2) {
+                Button { model.markIn() } label: { Image(systemName: "arrow.left.to.line") }
+                    .help("지금 자리를 구간 시작으로 (I)")
+                Button { model.markOut() } label: { Image(systemName: "arrow.right.to.line") }
+                    .help("지금 자리를 구간 끝으로 (O)")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.large)
             Spacer()
             if !model.audioTracks.isEmpty { AudioTrackButton(model: model) }
             if model.selectedClip != nil {

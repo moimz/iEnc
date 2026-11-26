@@ -200,6 +200,21 @@ private struct ClipBlock: View {
             Button("음량 +6 dB") { model.setGain(clip.id, clip.gain + 6) }
             Button("음량 −6 dB") { model.setGain(clip.id, clip.gain - 6) }
             Button("소리 끄기 (−30 dB)") { model.setGain(clip.id, Clip.gainRange.lowerBound) }
+            let tracks = model.metas[clip.url]?.audioTracks ?? []
+            if !tracks.isEmpty {
+                Divider()
+                Menu("소리 트랙") {
+                    if tracks.count > 1 {
+                        Toggle("모두", isOn: Binding(get: { clip.audioTracks == nil }, set: { _ in model.setClipTracks(clip.id, toggle: nil) }))
+                    }
+                    Toggle("없음", isOn: Binding(get: { clip.audioTracks == [] }, set: { _ in model.setClipTracks(clip.id, toggle: -1) }))
+                    Divider()
+                    ForEach(tracks.indices, id: \.self) { i in
+                        Toggle(tracks[i].label(i + 1), isOn: Binding(get: { (clip.audioTracks ?? Array(tracks.indices)).contains(i) },
+                                                                    set: { _ in model.setClipTracks(clip.id, toggle: i) }))
+                    }
+                }
+            }
             Divider()
             Button("삭제") { model.delete([clip.id]) }
         }

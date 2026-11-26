@@ -469,6 +469,23 @@ final class AppModel {
         return list.filter { $0 < all.count }.map { all[$0].short($0 + 1) }.joined(separator: "·")
     }
 
+    /// 타임라인 구간의 소리 트랙 바로 바꾸기 (오른쪽 클릭). track nil = 모두, -1 = 없음, 그 밖 = 그 트랙 켜기·끄기
+    func setClipTracks(_ id: Clip.ID, toggle track: Int?) {
+        guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
+        let all = Array((metas[clips[i].url]?.audioTracks ?? []).indices)
+        switch track {
+        case nil: clips[i].audioTracks = nil
+        case -1: clips[i].audioTracks = []
+        case let t?:
+            var set = Set(clips[i].audioTracks ?? all)
+            if set.contains(t) { set.remove(t) } else { set.insert(t) }
+            let list = all.filter { set.contains($0) }
+            clips[i].audioTracks = list == all ? nil : list
+        }
+        // 지금 고른 구간이면 위 편집 값도 맞춘다 (구간 적용 단추가 괜히 켜지지 않게)
+        if selectedClipID == id { cutTracks = clips[i].audioTracks }
+    }
+
     /// 미리보기로 들을 소리 트랙 바꾸기 (재생 중이면 그 자리에서 이어 재생)
     func listen(_ track: Int) {
         guard let engine, track != listenTrack else { return }

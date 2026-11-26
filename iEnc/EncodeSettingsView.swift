@@ -182,14 +182,18 @@ private struct JobStatus: View {
             case .running:
                 HStack {
                     Text((job.paused ? "멈춤" : "변환 중") + (job.outputs.count > 1 ? " (\(job.fileIndex + 1)/\(job.outputs.count))" : ""))
+                    if let left = job.remaining, !job.paused {
+                        Text("\(FF.duration(left)) 남음").foregroundStyle(.secondary).monospacedDigit()
+                    }
                     Spacer()
-                    Text("\(Int(job.progress * 100))%").monospacedDigit()
+                    Text(String(format: "%.1f%%", job.progress * 100)).monospacedDigit()
                 }
                 .font(.callout.weight(.medium))
                 ProgressView(value: job.progress)
-                row("시간", "\(FF.duration(job.elapsed)) / " + (job.remaining.map { "남은 약 " + FF.duration($0) } ?? "계산 중"))
+                // 지난 시간 / 예상 전체 시간 (크기 줄과 같은 꼴)
+                row("시간", "\(FF.duration(job.elapsed)) / " + (job.remaining.map { "예상 " + FF.duration(job.elapsed + $0) } ?? "계산 중"))
                 row("크기", "\(FF.bytes(job.bytes)) / " + (job.estimatedBytes.map { "예상 " + FF.bytes($0) } ?? "계산 중"))
-                if !job.speed.isEmpty { row("속도", "실시간의 \(job.speed)") }
+                if !job.speed.isEmpty { row("속도", job.speed) }
                 HStack {
                     Toggle("효율 코어로만", isOn: $job.lowPriority)
                         .toggleStyle(.checkbox)
