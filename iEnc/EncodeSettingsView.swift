@@ -25,40 +25,38 @@ struct EncodeSettingsView: View {
                 }
                 .help("하드웨어: 미디어 엔진으로 빠르고 CPU 를 거의 안 씀 (같은 화질이면 큼). CPU(x265·x264): 성능 코어를 다 써서 같은 화질을 더 작게. 원본 그대로: 다시 압축하지 않아 빠르지만 시작점이 키프레임에 맞춰짐")
                 if e.videoCodec.isSoftware {
-                    Picker("압축 수고", selection: s.preset) {
+                    Picker(selection: s.preset) {
                         ForEach(EncodeSettings.Preset.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .help("CPU 사용량이 아니라 장면마다 얼마나 꼼꼼히 압축하느냐. 작게일수록 같은 화질이 작은 파일이 되고 오래 걸립니다")
+                    } label: { InfoLabel("압축 수고", Info.preset) }
                 }
                 Group {
-                    Picker("화질", selection: s.rateMode) {
+                    Picker(selection: s.rateMode) {
                         ForEach(EncodeSettings.RateMode.allCases) { Text($0.rawValue).tag($0) }
-                    }
+                    } label: { InfoLabel("화질", Info.rateMode) }
                     if e.rateMode == .quality && e.videoCodec.isSoftware {
-                        LabeledContent("화질 (CRF)") {
+                        LabeledContent {
                             HStack {
                                 // 왼쪽이 화질 좋음(작은 CRF) — 하드웨어 품질 막대와 방향을 맞추려고 뒤집어 보인다
                                 Slider(value: Binding(get: { 50 - e.crf }, set: { model.encode.crf = 50 - $0 }), in: 15...36, step: 1)
                                 Text("\(Int(e.crf))").monospacedDigit().frame(width: 26, alignment: .trailing)
                             }
-                        }
-                        .help("낮을수록 화질이 좋고 파일이 큽니다. x264 는 18~23, x265 는 22~28 이 흔히 쓰는 범위")
+                        } label: { InfoLabel("화질 (CRF)", Info.crf) }
                     } else if e.rateMode == .quality {
-                        LabeledContent("품질") {
+                        LabeledContent {
                             HStack {
                                 Slider(value: s.quality, in: 1...100, step: 1)
                                 Text("\(Int(e.quality))").monospacedDigit().frame(width: 26, alignment: .trailing)
                             }
-                        }
+                        } label: { InfoLabel("품질", Info.quality) }
                     } else {
-                        LabeledContent("비트레이트") {
+                        LabeledContent {
                             HStack(spacing: 4) {
                                 TextField("Mbps", value: s.bitrate, format: .number)
                                     .multilineTextAlignment(.trailing)
                                     .frame(width: 60)
                                 Text("Mbps")
                             }
-                        }
+                        } label: { InfoLabel("비트레이트", Info.bitrate) }
                     }
                     Picker("해상도", selection: s.resolution) {
                         ForEach(EncodeSettings.Resolution.allCases) { r in
@@ -75,13 +73,11 @@ struct EncodeSettingsView: View {
                     Picker("프레임률", selection: s.frameRate) {
                         ForEach(EncodeSettings.FrameRate.allCases) { Text($0.label).tag($0) }
                     }
-                    Toggle("10비트", isOn: s.tenBit)
+                    Toggle(isOn: s.tenBit) { InfoLabel("10비트", Info.tenBit) }
                         .disabled(!e.videoCodec.isHEVC)
-                        .help("HEVC Main10. 그러데이션 띠가 덜 생깁니다")
-                    Picker("디인터레이스", selection: s.deinterlace) {
+                    Picker(selection: s.deinterlace) {
                         ForEach(EncodeSettings.Deinterlace.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .help("자동: 인터레이스 표시가 있는 영상만 bwdif 로 폅니다")
+                    } label: { InfoLabel("디인터레이스", Info.deinterlace) }
                 }
                 .disabled(copyVideo)
             }
@@ -234,4 +230,100 @@ private struct JobStatus: View {
         }
         .font(.caption)
     }
+}
+
+/// 설정 이름 옆 ⓘ: 누르면 그 설정이 무엇인지 풀어 쓴 말풍선
+private struct InfoLabel: View {
+    let title: String
+    let text: String
+    @State private var shown = false
+
+    init(_ title: String, _ text: String) {
+        self.title = title
+        self.text = text
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Button { shown.toggle() } label: {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("설명 보기")
+            .popover(isPresented: $shown, arrowEdge: .leading) {
+                Text(.init(text))
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 300, alignment: .leading)
+                    .padding(14)
+            }
+        }
+    }
+}
+
+/// ⓘ 말풍선 글 (마크다운 굵게 가능)
+private enum Info {
+    static let preset = """
+    **장면마다 얼마나 꼼꼼히 들여다보고 압축할지**입니다.
+
+    압축은 "이 조각과 비슷한 게 앞뒤 프레임 어디에 있나" 찾아서 차이만 저장하는 일입니다. 수고를 들일수록 더 넓게, 더 많은 경우를 시험해 더 좋은 방법을 찾습니다.
+
+    · 빠르게: 후보를 조금만 보고 고름
+    · 보통: 흔히 쓰는 균형
+    · 작게: 오래 걸리는 대신 같은 화질을 더 작은 파일로
+
+    CPU 를 얼마나 쓰느냐가 아닙니다 (그건 설정 › CPU 사용량). 예: 720p 2분 영상, x265 빠르게 약 20초 · 보통 약 30초.
+    """
+
+    static let rateMode = """
+    **무엇을 기준으로 압축할지** 고릅니다.
+
+    · **품질 기준**: 화질을 일정하게 지키고, 크기는 장면에 따라 달라집니다. 움직임이 많은 장면엔 많이, 정지한 장면엔 적게 씁니다. 같은 크기에서 보통 더 보기 좋습니다. 크기는 미리 어림만 됩니다.
+    · **비트레이트**: 1초에 쓸 용량을 정합니다. 크기를 거의 정확히 맞출 수 있지만, 복잡한 장면은 화질이 떨어지고 단순한 장면엔 용량이 남습니다. 올릴 곳의 용량 제한이 있을 때 씁니다.
+    """
+
+    static let quality = """
+    **하드웨어 인코더가 정보를 얼마나 덜 버릴지**입니다 (1~100).
+
+    높을수록 디테일이 남고 파일이 커지며, 낮을수록 뭉개지고 네모 무늬가 보입니다. 50~70 이 무난하고, 기본은 60 입니다.
+
+    애플 미디어 엔진만의 눈금이라 소프트웨어의 CRF 숫자와 바꿔 셀 수 없습니다.
+    """
+
+    static let crf = """
+    **x264·x265 의 화질 기준 값(CRF)**입니다. 화질을 일정하게 지키고 크기는 장면에 따라 달라집니다.
+
+    숫자가 **낮을수록** 화질이 좋고 파일이 큽니다 (막대는 다른 설정과 맞춰 오른쪽이 좋은 화질). 6 내리면 크기가 대략 두 배입니다.
+
+    · x264: 18~23 이 흔함 (18 ≈ 눈으로 구별 어려움)
+    · x265: 22~28 이 흔함 (같은 숫자면 x264 보다 작음)
+
+    하드웨어 "품질" 숫자와는 다른 눈금입니다.
+    """
+
+    static let bitrate = """
+    **1초에 쓸 용량**입니다 (Mbps = 초당 메가비트). 크기 ≈ 비트레이트 × 길이 ÷ 8 이라, 6 Mbps 로 10분이면 약 450 MB 입니다 (소리 별도).
+
+    대략 HEVC 기준: 720p 2~4 · 1080p 4~8 · 4K 15~30. H.264 는 이보다 1.5배쯤 필요합니다.
+    """
+
+    static let tenBit = """
+    **색 단계를 더 잘게 저장**합니다. 8비트는 색마다 256 단계, 10비트는 1024 단계입니다.
+
+    하늘·어두운 벽처럼 서서히 변하는 곳에 생기는 계단 같은 띠가 줄고, 같은 화질에서 크기가 조금 작아지기도 합니다. 원본이 HDR 이면 켜야 합니다.
+
+    HEVC 에서만 됩니다. 아주 오래된 기기·TV 는 재생하지 못할 수 있습니다.
+    """
+
+    static let deinterlace = """
+    옛 TV 방송·DVD·캠코더 영상(**인터레이스**)은 한 화면을 홀수 줄·짝수 줄로 번갈아 찍어, 움직이는 곳에 **빗살 무늬**가 보입니다. 이를 온전한 화면으로 폅니다.
+
+    · 자동: 파일에 인터레이스 표시가 있는 영상만 폄
+    · 끔: 그대로 둠
+    · 켬: 표시가 없어도 폄 (표시가 잘못 달린 영상용)
+
+    요즘 영상은 대부분 해당 없습니다.
+    """
 }
