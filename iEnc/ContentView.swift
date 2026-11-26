@@ -2,114 +2,240 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// 창: 왼쪽 사이드바(자른 구간) · 가운데 미리보기 + 구간 선택 바 · 오른쪽 영상 정보
 struct ContentView: View {
     @State private var model = AppModel()
-    @State private var dropping = false
     @FocusState private var focused: Bool
 
     var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                ZStack {
-                    VideoLayerView(layer: model.displayLayer, rotation: model.rotation)
-                    if model.url == nil {
-                        VStack(spacing: 8) {
-                            Image(systemName: "film.stack")
-                                .font(.system(size: 40))
-                            Text("영상을 여기에 끌어 놓으세요")
-                        }
-                        .foregroundStyle(.secondary)
-                    } else if let error = model.openError {
-                        Text(error)
-                            .foregroundStyle(.red)
-                            .padding(8)
-                            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
-                    }
-                    if dropping {
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(Color.accentColor, lineWidth: 3)
-                            .padding(6)
-                    }
-                }
-                .frame(minWidth: 480, minHeight: 270)
-                if model.url != nil {
-                    TransportBar(model: model)
-                }
+        NavigationSplitView {
+            ClipSidebar(model: model)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
+        } detail: {
+            HSplitView {
+                EditorPane(model: model)
+                    .frame(minWidth: 560)
+                InfoPanel(model: model)
+                    .frame(minWidth: 260, idealWidth: 320, maxWidth: 520)
             }
-            .frame(minWidth: 480)
-
-            InfoPanel(model: model)
-                .frame(minWidth: 300, idealWidth: 360, maxWidth: 600)
-        }
-        .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
-            guard let provider = providers.first else { return false }
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                if let url { DispatchQueue.main.async { model.open(url) } }
+            .focusable()
+            .focusEffectDisabled()
+            .focused($focused)
+            .onKeyPress(.space) { model.togglePlay(); return .handled }
+            .onKeyPress(.leftArrow) { model.step(-1); return .handled }
+            .onKeyPress(.rightArrow) { model.step(1); return .handled }
+            .onKeyPress(characters: .init(charactersIn: "jlio"), phases: .down) { press in
+                switch press.characters {
+                case "j", "l":  // 5초 앞뒤
+                    model.seek(max(0, min(model.duration, model.position + (press.characters == "l" ? 5 : -5))))
+                case "i": model.markIn()
+                case "o": model.markOut()
+                default: break
+                }
+                return .handled
             }
-            return true
         }
-        .focusable()
-        .focusEffectDisabled()
-        .focused($focused)
+        .navigationTitle(model.url?.lastPathComponent ?? "iEnc")
         .onAppear {
             focused = true
             if let bench = Bench.arguments { Bench.run(model: model, list: bench.list, out: bench.out) }
             // 시험용: iEnc -open <파일>
             let args = ProcessInfo.processInfo.arguments
-            if let i = args.firstIndex(of: "-open"), i + 1 < args.count { model.open(URL(fileURLWithPath: args[i + 1])) }
+            if let i = args.firstIndex(of: "-open"), i + 1 < args.count { model.openNew(URL(fileURLWithPath: args[i + 1])) }
+            // 시험용: -demo 를 붙이면 열린 영상에서 구간 둘을 잘라 넣고 첫 구간을 고른다 (화면 확인용)
+            if args.contains("-demo") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    model.setOut(45); model.setIn(30); model.cut()
+                    model.setOut(130); model.setIn(100); model.cut()
+                    model.setOut(300); model.setIn(250); model.cut()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        model.selectedClipID = model.clips.first?.id
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.setOut(48.5) }
+                    }
+                }
+            }
         }
-        .onKeyPress(.space) { model.togglePlay(); return .handled }
-        .onKeyPress(.leftArrow) { model.step(-1); return .handled }
-        .onKeyPress(.rightArrow) { model.step(1); return .handled }
-        .onKeyPress(characters: .init(charactersIn: "jl"), phases: .down) { press in
-            // J·L: 5초 앞뒤
-            model.seek(max(0, min(model.duration, model.position + (press.characters == "l" ? 5 : -5))))
-            return .handled
-        }
-        .navigationTitle(model.url?.lastPathComponent ?? "iEnc")
     }
 }
 
-/// 재생 단추 · 시각 · 타임라인
-struct TransportBar: View {
+/// 미리보기 + 구간 선택 바 + 자르기 단추. 영상이 없으면 불러오기 안내
+struct EditorPane: View {
+    @Bindable var model: AppModel
+    @State private var dropping = false
+    @State private var importing = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                VideoLayerView(layer: model.displayLayer, rotation: model.rotation)
+                if model.url == nil {
+                    VStack(spacing: 12) {
+                        Button { importing = true } label: {
+                            Label("영상 불러오기", systemImage: "plus")
+                                .font(.title3)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        Text("또는 영상을 여기에 끌어 놓으세요")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let error = model.openError {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .padding(8)
+                        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+                }
+                if dropping {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .padding(6)
+                }
+            }
+            .frame(minHeight: 260)
+            .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
+                guard let provider = providers.first else { return false }
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { DispatchQueue.main.async { model.openNew(url) } }
+                }
+                return true
+            }
+
+            if model.url != nil {
+                TrimBar(model: model)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .disabled(model.duration <= 0)
+                CutActions(model: model)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+            }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
+            if case .success(let url) = result { model.openNew(url) }
+        }
+    }
+}
+
+/// 구간 길이 · 자르기 단추. 사이드바에서 구간을 골랐으면 "구간 적용" 도
+struct CutActions: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(spacing: 4) {
-            Slider(value: Binding(
-                get: { model.position },
-                set: { model.seek($0) }
-            ), in: 0...max(model.duration, 0.001)) { editing in
-                model.isScrubbing = editing
+        HStack(spacing: 10) {
+            Text("구간 \(FF.clock(model.outPoint - model.inPoint))")
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(.secondary)
+            Text("현재 \(FF.clock(model.position))")
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(.tertiary)
+            Spacer()
+            if model.selectedClip != nil {
+                Button("구간 적용") { model.applyToSelected() }
+                    .disabled(!model.selectionChanged)
+                    .help("사이드바에서 고른 구간을 지금 범위로 고칩니다")
+                Button("새 구간으로 자르기") { model.cut() }
+                    .keyboardShortcut("k", modifiers: .command)
+            } else {
+                Button {
+                    model.cut()
+                } label: {
+                    Label("구간 자르기", systemImage: "scissors")
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut("k", modifiers: .command)
+                .help("지금 구간을 사이드바에 넣습니다 (⌘K)")
             }
-            .controlSize(.small)
-            HStack(spacing: 12) {
-                Button { model.step(-1) } label: { Image(systemName: "backward.frame") }
-                    .help("한 프레임 뒤 (←)")
-                Button { model.togglePlay() } label: { Image(systemName: model.isPlaying ? "pause.fill" : "play.fill") }
-                    .help("재생·멈춤 (스페이스)")
-                Button { model.step(1) } label: { Image(systemName: "forward.frame") }
-                    .help("한 프레임 앞 (→)")
-                Text("\(FF.clock(model.position)) / \(FF.clock(model.duration))")
-                    .font(.system(.body, design: .monospaced))
-                Text("#\(Int((model.position / model.frameDuration).rounded()))")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Toggle("하드웨어 디코딩", isOn: $model.hardware)
-                    .toggleStyle(.checkbox)
-                    .help("VideoToolbox 로 풉니다. 기본은 소프트웨어 (탐색이 더 빠름, AV1 만 늘 하드웨어)")
-            }
-            .buttonStyle(.borderless)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .disabled(model.duration <= 0)
+    }
+}
+
+/// 사이드바: 자른 구간 목록 (끌어서 순서 바꾸기) + 맨 아래 영상 추가
+struct ClipSidebar: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        List(selection: $model.selectedClipID) {
+            ForEach(model.clips) { clip in
+                ClipRow(clip: clip)
+                    .tag(clip.id)
+            }
+            .onMove { model.move(from: $0, to: $1) }
+        }
+        .overlay {
+            if model.clips.isEmpty {
+                Text("자른 구간이 여기에 쌓입니다")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding()
+            }
+        }
+        .onDeleteCommand {
+            if let id = model.selectedClipID { model.delete([id]) }
+        }
+        .contextMenu(forSelectionType: Clip.ID.self) { ids in
+            Button("삭제") { model.delete(ids) }
+        }
+        .safeAreaInset(edge: .bottom) {
+            Button { model.newSource() } label: {
+                Label("영상 추가", systemImage: "plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .padding(10)
+            .help("빈 화면에서 새 영상을 불러옵니다")
+        }
+    }
+}
+
+/// 구간 한 줄: 16:10 썸네일 + 파일 이름 + 시작–끝
+struct ClipRow: View {
+    let clip: Clip
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // 16:10 칸을 먼저 정하고 그림은 그 안을 채우게 (그림 크기가 칸을 넓히지 않도록 overlay 로)
+            Color.black
+                .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    if let image = clip.thumbnail {
+                        Image(decorative: image, scale: 2)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    Text(FF.clock(clip.length))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 3))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            Text(clip.url.lastPathComponent)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text("\(FF.clock(clip.start)) – \(FF.clock(clip.end))")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
     }
 }
 
 /// 오른쪽 정보 칸: 파일·스트림 정보 + 미리보기 진단
 struct InfoPanel: View {
-    let model: AppModel
+    @Bindable var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -136,6 +262,10 @@ struct InfoPanel: View {
                     }
                     if model.url != nil {
                         SectionView(title: "미리보기 진단", rows: diagnostics)
+                        Toggle("하드웨어 디코딩 (VideoToolbox)", isOn: $model.hardware)
+                            .toggleStyle(.checkbox)
+                            .font(.caption)
+                            .help("기본은 소프트웨어 (탐색이 더 빠름, AV1 만 늘 하드웨어). 켜면 VideoToolbox 로 풉니다")
                     }
                 }
                 .padding(10)
