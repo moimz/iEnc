@@ -7,14 +7,16 @@ struct ContentView: View {
     @State private var model = AppModel()
     @FocusState private var focused: Bool
     @AppStorage("hardwareDecoding") private var hardware = false
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         NavigationSplitView {
             ClipSidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
         } detail: {
+            // 본문 최소 800 (인코딩 설정 네 칸이 눌리지 않는 폭)
             EditorPane(model: model)
-                .frame(minWidth: 640)
+                .frame(minWidth: 800)
             .focusable()
             .focusEffectDisabled()
             .focused($focused)
@@ -42,6 +44,8 @@ struct ContentView: View {
             let args = ProcessInfo.processInfo.arguments
             if let i = args.firstIndex(of: "-open"), i + 1 < args.count { model.openNew(URL(fileURLWithPath: args[i + 1])) }
             // 시험용: -demo 를 붙이면 열린 영상에서 구간 둘을 잘라 넣고 첫 구간을 고른다 (화면 확인용)
+            // 시험용: -settings 를 붙이면 설정 창을 연다 (화면 확인용)
+            if args.contains("-settings") { openSettings() }
             if args.contains("-demo") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     model.setOut(45); model.setIn(30); model.cut()
