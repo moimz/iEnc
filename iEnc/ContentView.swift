@@ -13,20 +13,31 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SourceSidebar(model: model)
-                .navigationSplitViewColumnWidth(min: 170, ideal: 210, max: 300)
+                .navigationSplitViewColumnWidth(210)
         } detail: {
             detail
         }
         .navigationTitle(model.url?.lastPathComponent ?? "iEnc")
+        .focusedSceneValue(\.appModel, model)
+        .onChange(of: model.askReset) {
+            // 비어 있으면 묻지 않고 바로
+            if model.askReset && model.isEmptyProject { model.resetProject(); model.askReset = false }
+        }
+        .alert("새 프로젝트를 시작할까요?", isPresented: Binding(get: { model.askReset && !model.isEmptyProject }, set: { model.askReset = $0 })) {
+            Button("새 프로젝트", role: .destructive) { model.resetProject() }
+            Button("취소", role: .cancel) { }
+        } message: {
+            Text("불러온 영상 목록과 자른 구간이 모두 지워집니다. 인코딩 설정은 그대로입니다.")
+        }
     }
 
     private var detail: some View {
-        // 본문 최소 800
+        // 본문 최소 500 (양쪽 사이드바는 폭 고정)
         EditorPane(model: model)
-            .frame(minWidth: 800)
+            .frame(minWidth: 500)
             .inspector(isPresented: $showEncode) {
                 EncodeSettingsView(model: model)
-                    .inspectorColumnWidth(min: 290, ideal: 310, max: 380)
+                    .inspectorColumnWidth(310)
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -93,13 +104,16 @@ struct EditorPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                preview
-                    .frame(minWidth: 320, maxWidth: .infinity)
-                    .layoutPriority(1)
-                infoDivider
-                InfoPanel(model: model)
-                    .frame(width: infoWidth)
+            // 본문이 좁아지면 정보 칸도 줄인다 (미리보기 최소 200 은 남긴다)
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    preview
+                        .frame(minWidth: 200, maxWidth: .infinity)
+                        .layoutPriority(1)
+                    infoDivider
+                    InfoPanel(model: model)
+                        .frame(width: min(infoWidth, max(200, geo.size.width - 201)))
+                }
             }
             .frame(minHeight: 200, maxHeight: .infinity)
             Divider()

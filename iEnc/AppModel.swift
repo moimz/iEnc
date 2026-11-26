@@ -124,6 +124,22 @@ final class AppModel {
         open(url)
     }
 
+    /// 파일 › 새 프로젝트: 불러온 영상·자른 구간·파형을 모두 비운다 (저장하지 않는 앱이라 이게 "처음부터")
+    /// 인코딩 설정은 그대로 둔다
+    func resetProject() {
+        newSource()
+        clips = []
+        sources = []
+        sourceWaves = [:]  // 만드는 중인 파형은 목록에 영상이 없어서 스스로 멈춘다
+        laneImages = [:]
+        laneMakers = [:]
+        laneKeys = [:]
+    }
+
+    var isEmptyProject: Bool { sources.isEmpty && clips.isEmpty }
+    /// 새 프로젝트 확인 창 띄우기 (메뉴에서)
+    var askReset = false
+
     /// 빈 상태로 (지금 연 영상을 목록에서 뺄 때)
     func newSource() {
         selectedClipID = nil

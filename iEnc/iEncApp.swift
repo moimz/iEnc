@@ -4,11 +4,16 @@ import SwiftUI
 struct iEncApp: App {
     var body: some Scene {
         WindowGroup {
+            // 왼쪽 사이드바 210 · 본문 최소 500 · 인코딩 사이드바 310 (양쪽 사이드바는 폭 고정, 줄고 느는 건 본문만)
             ContentView()
-                .frame(minWidth: 1120, minHeight: 640)  // 본문 800 + 인코딩 사이드바 310 (왼쪽 사이드바는 좁으면 접힘). 최종 크기는 인코딩 설정 완성 후 (Ai/iEnc.md)
+                .frame(minWidth: 1030, minHeight: 640)
         }
         .defaultSize(width: 1560, height: 880)
         .commands {
+            // 저장하지 않는 앱: 새 창 대신 "새 프로젝트" 로 모두 비운다
+            CommandGroup(replacing: .newItem) {
+                NewProjectButton()
+            }
             CommandGroup(replacing: .appInfo) {
                 Button("iEnc에 관하여") {
                     NSApp.orderFrontStandardAboutPanel(options: [.applicationVersion: Self.versionText, .version: ""])
@@ -92,4 +97,19 @@ struct SettingsView: View {
             if case .success(let url) = result { folder = url.path }
         }
     }
+}
+
+/// 파일 › 새 프로젝트 (⌘N). 지금 창의 모델은 FocusedValue 로 받는다
+private struct NewProjectButton: View {
+    @FocusedValue(\.appModel) private var model
+
+    var body: some View {
+        Button("새 프로젝트") { model?.askReset = true }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(model == nil)
+    }
+}
+
+extension FocusedValues {
+    @Entry var appModel: AppModel?
 }

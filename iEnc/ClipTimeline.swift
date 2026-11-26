@@ -146,7 +146,7 @@ private struct TimeRuler: View {
                 let isMajor = abs((k / major).rounded() * major - k) < 0.001
                 ticks.move(to: CGPoint(x: px + 0.5, y: size.height))
                 ticks.addLine(to: CGPoint(x: px + 0.5, y: size.height - (isMajor ? 7 : 3)))
-                if isMajor {
+                if isMajor && px + 46 <= size.width {  // 오른쪽 끝에서 잘릴 글자는 안 씀
                     // 글자는 눈금자 맨 위부터 (틀 밖으로 나가 잘리지 않게)
                     ctx.draw(Text(Self.label(k)).font(.system(size: 9, weight: .medium).monospacedDigit()).foregroundStyle(.secondary),
                              at: CGPoint(x: px + 3, y: 1), anchor: .topLeading)
