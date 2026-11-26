@@ -32,6 +32,8 @@ struct ClipSubtitle: Equatable {
 struct SubtitleSections: View {
     @Bindable var model: AppModel
     @State private var pickingFor: Clip.ID?
+    /// 접어 둔 구간 (기본은 모두 펼침)
+    @State private var collapsed: Set<Clip.ID> = []
 
     private static let fonts = NSFontManager.shared.availableFontFamilies
     private static let fileTypes: [UTType] = ["smi", "sami", "srt", "ass", "ssa", "vtt", "sub", "sup"]
@@ -40,27 +42,32 @@ struct SubtitleSections: View {
     private var d: Binding<SubtitleDraft> { $model.subtitle }
 
     var body: some View {
-        Section("자막") {
+        // 한 묶음 안에: 자막 포함 → 구간마다 접히는 칸(DisclosureGroup) → 자막 방식 → 안내
+        Section {
             Toggle("자막 포함", isOn: d.enabled)
-            if !model.subtitle.enabled {
-                notice
-            }
-        }
-        if model.subtitle.enabled {
-            if model.clips.isEmpty {
-                Section { Text("자른 구간이 없습니다").foregroundStyle(.secondary) }
-            }
-            ForEach(Array(model.clips.enumerated()), id: \.element.id) { i, clip in
-                Section {
-                    tracksRow(clip)
-                    externalRow(clip)
-                } header: {
-                    Text("구간 #\(i + 1) · \(clip.url.deletingPathExtension().lastPathComponent)")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+            if model.subtitle.enabled {
+                if model.clips.isEmpty {
+                    Text("자른 구간이 없습니다").foregroundStyle(.secondary)
                 }
-            }
-            Section {
+                ForEach(Array(model.clips.enumerated()), id: \.element.id) { i, clip in
+                    DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(clip.id) },
+                                                        set: { if $0 { collapsed.remove(clip.id) } else { collapsed.insert(clip.id) } })) {
+                        // 구간 이름 아래로 들여 써서 단계가 보이게
+                        Group {
+                            tracksRow(clip)
+                            externalRow(clip)
+                        }
+                        .padding(.leading, 16)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("구간 #\(i + 1)").fontWeight(.medium)
+                            Text(clip.url.deletingPathExtension().lastPathComponent)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
                 Picker("자막 방식", selection: d.mode) {
                     ForEach(SubtitleDraft.Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -76,8 +83,12 @@ struct SubtitleSections: View {
                     Toggle("그림자", isOn: d.shadow)
                     ColorPicker("자막 색", selection: d.color, supportsOpacity: false)
                 }
-                notice
-            } footer: {
+            }
+            notice
+        } header: {
+            Text("자막")
+        } footer: {
+            if model.subtitle.enabled {
                 Text(model.subtitle.mode == .track
                      ? "자막 트랙: 켜고 끌 수 있는 자막으로 넣습니다 (MKV 는 꾸밈 그대로, MP4·MOV 는 글자만)."
                      : "자막 입히기: 영상 그림에 새겨 어떤 플레이어에서든 보입니다 (끌 수 없음, 다시 압축할 때만).")
