@@ -21,12 +21,25 @@ struct iEncApp: App {
             CommandGroup(replacing: .newItem) {
                 NewProjectButton()
             }
+            // iEnc에 관하여: 기본 정보 창 대신 직접 만든 창 (오픈소스 고지, iRayer 와 같은 모양)
             CommandGroup(replacing: .appInfo) {
-                Button("iEnc에 관하여") {
-                    NSApp.orderFrontStandardAboutPanel(options: [.applicationVersion: Self.versionText, .version: ""])
-                }
+                AboutMenuButton()
+            }
+            // 도움말: GitHub 페이지 · 문제 신고… (도움말 책이 없어 기본 항목은 뺀다)
+            CommandGroup(replacing: .help) {
+                HelpMenuButtons()
             }
         }
+
+        // iEnc 정보 창
+        Window("iEnc 정보", id: AboutView.windowID) {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
+        .restorationBehavior(.disabled)
+        .defaultPosition(.center)
+
         settings
     }
 
@@ -148,7 +161,7 @@ private struct GeneralSettings: View {
                         Button("기본값") { template = FileNameTemplate.defaultValue }
                             .controlSize(.small)
                     }
-                    Text("예: " + FileNameTemplate.render(template, name: "구명병동 24시 - S03E01", number: 1, start: 1834.5) + ".mp4")
+                    Text("예: " + FileNameTemplate.render(template, name: "나의동영상", number: 1, start: 1834.5) + ".mp4")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

@@ -10,6 +10,7 @@ struct ContentView: View {
     @AppStorage("showEncode") private var showEncode = true
     @AppStorage("showInfo") private var showInfo = true
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         NavigationSplitView {
@@ -105,6 +106,7 @@ struct ContentView: View {
             // 시험용: -demo 를 붙이면 열린 영상에서 구간 둘을 잘라 넣고 첫 구간을 고른다 (화면 확인용)
             // 시험용: -settings 를 붙이면 설정 창을 연다 (화면 확인용)
             if args.contains("-settings") { openSettings() }
+            if args.contains("-about") { openWindow(id: AboutView.windowID) }
             if let kv = EncodeTest.arguments { EncodeTest.run(model: model, kv) }
             // 자막 설정 화면 보기용: 구간 둘 + 자막 포함 켜기 + 자막 입히기
             // 원본 그대로 검사 화면 보기용: 연 영상들마다 구간 하나 + 원본 그대로 (뒤에 joined 를 주면 한 파일로)

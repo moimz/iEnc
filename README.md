@@ -59,3 +59,8 @@ open iEnc.xcodeproj
 MIT. 앱에 들어가는 FFmpeg 라이브러리와 ffmpeg 실행 파일은 LGPL 2.1 이상입니다 (GPL·nonfree 구성 요소 없이 빌드, `Scripts/build-ffmpeg.sh`). ffmpeg 실행 파일은 앱과 따로 실행됩니다.
 x264·x265 가 든 `ffmpeg-gpl` 실행 파일(`Scripts/build-ffmpeg-gpl.sh`, Homebrew 의 x264·x265 정적 라이브러리로 정적 빌드)은 GPL 2 이상입니다. 앱 코드와 링크하지 않고 따로 실행하므로 앱은 MIT 로 남습니다. 배포할 때는 FFmpeg·x264·x265 소스를 함께 제공해야 합니다.
 앱에 넣은 자막 글꼴: 나눔글꼴·마루부리 © NAVER Corporation, SIL Open Font License 1.1 (`iEnc/Fonts/*-OFL.txt`).
+함께 쓰는 오픈소스 목록은 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 와 앱의 iEnc › iEnc에 관하여 에 있습니다.
+
+## 도움말
+
+도움말 메뉴: **iEnc GitHub 페이지**, **문제 신고…** (새 이슈에 앱 버전·macOS 버전만 미리 채움).
