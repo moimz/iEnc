@@ -94,19 +94,48 @@ final class AppModel {
 
     func sourceInUse(_ source: Source) -> Bool { clips.contains { $0.url == source.url } }
 
+    /// 여러 영상을 한 번에 (파일 고르기·끌어 놓기): 모두 사이드바에 넣고 첫 영상을 연다.
+    /// 나머지는 열지 않고 길이·썸네일·파형만 미리 만든다
+    func importFiles(_ urls: [URL]) {
+        guard let first = urls.first else { return }
+        // 고른 순서대로 목록에 (첫 영상도 먼저 넣어 두고 연다)
+        for url in urls where !sources.contains(where: { $0.url == url }) {
+            sources.append(Source(url: url))
+            if url != first { preload(url) }
+        }
+        openNew(first)
+    }
+
+    private func preload(_ url: URL) {
+        DispatchQueue.global(qos: .utility).async {
+            var fmt: UnsafeMutablePointer<AVFormatContext>?
+            var duration = 0.0
+            if avformat_open_input(&fmt, url.path, nil, nil) == 0, let ctx = fmt {
+                avformat_find_stream_info(ctx, nil)
+                if ctx.pointee.duration != ienc_nopts() { duration = Double(ctx.pointee.duration) / Double(AV_TIME_BASE) }
+                avformat_close_input(&fmt)
+            }
+            DispatchQueue.main.async {
+                guard duration > 0 else { return }
+                self.sourceOpened(url, duration: duration, maker: Thumbnailer(url: url))
+            }
+        }
+    }
+
     /// 처음 연 영상이면 사이드바에 넣는다
     private func addSource(_ url: URL) {
         if !sources.contains(where: { $0.url == url }) { sources.append(Source(url: url)) }
     }
 
     /// 영상 길이를 알게 되면: 사이드바 썸네일 + 영상 전체 파형 (한 번만)
-    private func sourceOpened(_ url: URL, duration: Double) {
+    private func sourceOpened(_ url: URL, duration: Double, maker: Thumbnailer? = nil) {
         guard let i = sources.firstIndex(where: { $0.url == url }) else { return }
         sources[i].duration = duration
-        if sources[i].thumbnail == nil, let thumbnailer {
+        if sources[i].thumbnail == nil, let thumbnailer = maker ?? (url == self.url ? thumbnailer : nil) {
             thumbnailer.image(at: min(duration * 0.1, 60), height: 240) { [weak self] image in
                 guard let self, let i = self.sources.firstIndex(where: { $0.url == url }) else { return }
                 self.sources[i].thumbnail = image
+                self.sources[i].thumbnailTried = true
             }
         }
         guard sourceWaves[url] == nil, duration > 0 else { return }

@@ -21,8 +21,10 @@ struct Source: Identifiable, Equatable {
     var url: URL
     var duration: Double = 0
     var thumbnail: CGImage?
+    /// 썸네일을 뽑아 봤는지 (소리만 있는 파일은 그림이 없다)
+    var thumbnailTried = false
 
     static func == (a: Source, b: Source) -> Bool {
-        a.id == b.id && a.url == b.url && a.duration == b.duration && a.thumbnail === b.thumbnail
+        a.id == b.id && a.url == b.url && a.duration == b.duration && a.thumbnail === b.thumbnail && a.thumbnailTried == b.thumbnailTried
     }
 }

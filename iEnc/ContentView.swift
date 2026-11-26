@@ -80,7 +80,11 @@ struct ContentView: View {
             if let bench = Bench.arguments { Bench.run(model: model, list: bench.list, out: bench.out) }
             // 시험용: iEnc -open <파일>
             let args = ProcessInfo.processInfo.arguments
-            if let i = args.firstIndex(of: "-open"), i + 1 < args.count { model.openNew(URL(fileURLWithPath: args[i + 1])) }
+            // 시험용: -open <파일> [<파일>…] (여러 개면 첫 영상을 열고 나머지는 사이드바에)
+            if let i = args.firstIndex(of: "-open") {
+                let files = args[(i + 1)...].prefix { !$0.hasPrefix("-") }.map { URL(fileURLWithPath: $0) }
+                model.importFiles(files)
+            }
             // 시험용: -demo 를 붙이면 열린 영상에서 구간 둘을 잘라 넣고 첫 구간을 고른다 (화면 확인용)
             // 시험용: -settings 를 붙이면 설정 창을 연다 (화면 확인용)
             if args.contains("-settings") { openSettings() }
@@ -145,8 +149,8 @@ struct EditorPane: View {
             Divider()
             ClipTimeline(model: model)
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
-            if case .success(let url) = result { model.openNew(url) }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data], allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { model.importFiles(urls) }
         }
     }
 
@@ -199,13 +203,7 @@ struct EditorPane: View {
                         .padding(6)
                 }
             }
-            .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
-                guard let provider = providers.first else { return false }
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    if let url { DispatchQueue.main.async { model.openNew(url) } }
-                }
-                return true
-            }
+            .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in dropFiles(providers, into: model) }
     }
 }
 
@@ -263,9 +261,10 @@ struct SourceSidebar: View {
             .keyboardShortcut("o", modifiers: .command)
             .help("영상을 불러옵니다 (⌘O)")
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
-            if case .success(let url) = result { model.openNew(url) }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data], allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { model.importFiles(urls) }
         }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in dropFiles(providers, into: model) }
     }
 
     private var list: some View {
@@ -310,6 +309,8 @@ private struct SourceRow: View {
                 .overlay {
                     if let image = source.thumbnail {
                         Image(decorative: image, scale: 2).resizable().aspectRatio(contentMode: .fill)
+                    } else if source.thumbnailTried {
+                        Image(systemName: "waveform").font(.title2).foregroundStyle(.secondary)
                     } else {
                         ProgressView().controlSize(.small)
                     }
@@ -456,4 +457,19 @@ struct VideoLayerView: NSViewRepresentable {
             CATransaction.commit()
         }
     }
+}
+
+/// 끌어 놓은 파일들(여러 개 가능)을 받아 순서대로 넣는다
+func dropFiles(_ providers: [NSItemProvider], into model: AppModel) -> Bool {
+    guard !providers.isEmpty else { return false }
+    let group = DispatchGroup()
+    var urls = [URL?](repeating: nil, count: providers.count)
+    for (i, provider) in providers.enumerated() {
+        group.enter()
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            DispatchQueue.main.async { urls[i] = url; group.leave() }
+        }
+    }
+    group.notify(queue: .main) { model.importFiles(urls.compactMap { $0 }) }
+    return true
 }
