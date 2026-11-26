@@ -6,6 +6,8 @@ import Observation
 struct SourceMeta {
     var width = 0
     var height = 0
+    /// 영상 코덱 (AVCodecID 값, 0 = 영상 없음/모름). 원본 그대로 복사할 수 있는지 볼 때
+    var videoCodec: UInt32 = 0
     /// 화소 가로세로 비율 (1 = 정사각)
     var sar = 1.0
     var fps = 0.0
@@ -32,6 +34,7 @@ struct SourceMeta {
         m.bitRate = Double(ctx.pointee.bit_rate)
         let v = av_find_best_stream(ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         if v >= 0, let st = ctx.pointee.streams[Int(v)], let par = st.pointee.codecpar {
+            m.videoCodec = par.pointee.codec_id.rawValue
             m.width = Int(par.pointee.width)
             m.height = Int(par.pointee.height)
             let sar = par.pointee.sample_aspect_ratio
@@ -61,6 +64,9 @@ struct AudioTrack: Hashable {
     var title: String?
     var codec: String
     var channels: Int
+    var sampleRate = 0
+    /// AVCodecID 값 (원본 그대로 복사할 수 있는지 볼 때)
+    var codecID: UInt32 = 0
     /// 원본에 기본 트랙 표시가 있는지
     var isDefault = false
 
@@ -86,6 +92,8 @@ struct AudioTrack: Hashable {
             out.append(AudioTrack(language: FF.tag(st.pointee.metadata, "language"), title: FF.tag(st.pointee.metadata, "title"),
                                   codec: String(cString: avcodec_get_name(par.pointee.codec_id)),
                                   channels: Int(par.pointee.ch_layout.nb_channels),
+                                  sampleRate: Int(par.pointee.sample_rate),
+                                  codecID: par.pointee.codec_id.rawValue,
                                   isDefault: st.pointee.disposition & AV_DISPOSITION_DEFAULT != 0))
         }
         return out
@@ -115,6 +123,95 @@ struct SubtitleTrack: Hashable {
     func short(_ number: Int) -> String {
         if let language, language != "und" { return "#\(number) \(language)" }
         return "#\(number)"
+    }
+}
+
+/// "원본 그대로"(다시 압축 안 함)가 되는지: 그 파일 형식이 원본 코덱을 담을 수 있는지, 한 파일로 이어 붙일 수 있는지.
+/// 형식별로 담을 수 있는 코덱은 표를 따로 두지 않고 libavformat 에 묻는다 (avformat_query_codec)
+enum CopyCheck {
+    /// 사람이 읽는 코덱 이름 (안내 문구용)
+    static func codecName(_ id: UInt32) -> String {
+        let raw = String(cString: avcodec_get_name(AVCodecID(rawValue: id)))
+        if raw.hasPrefix("pcm_") { return "PCM" }
+        let names = ["h264": "H.264", "hevc": "HEVC", "mpeg2video": "MPEG-2", "mpeg1video": "MPEG-1", "mpeg4": "MPEG-4",
+                     "wmv1": "WMV", "wmv2": "WMV", "wmv3": "WMV", "vc1": "VC-1", "rv10": "RealVideo", "rv20": "RealVideo",
+                     "rv30": "RealVideo", "rv40": "RealVideo", "flv1": "Flash 영상", "msmpeg4v2": "MS-MPEG4", "msmpeg4v3": "DivX 3",
+                     "wmav1": "WMA", "wmav2": "WMA", "cook": "RealAudio", "mp2": "MP2", "dts": "DTS", "truehd": "TrueHD",
+                     "vorbis": "Vorbis", "opus": "Opus", "flac": "FLAC", "vp8": "VP8", "vp9": "VP9", "av1": "AV1", "prores": "ProRes"]
+        return names[raw] ?? raw.uppercased()
+    }
+
+    /// MP4·MOV 에 원본 그대로 넣어도 맥·아이폰(QuickTime·AVFoundation)에서 재생되는 코덱.
+    /// ffmpeg 는 WMV 를 MOV 에, PCM·MPEG-2 를 MP4 에도 넣어 주지만 그 파일은 애플 기기에서 안 열린다 (2026-11-27 시험) → 막는다
+    static let playable: [EncodeSettings.Container: Set<String>] = [
+        .mp4: ["h264", "hevc", "av1", "vp9", "mpeg4", "aac", "mp3", "ac3", "eac3", "alac", "flac", "opus"],
+        .mov: ["h264", "hevc", "prores", "mjpeg", "mpeg4", "dvvideo", "aac", "mp3", "ac3", "eac3", "alac"],
+    ]
+
+    /// 파일 형식이 그 코덱을 담을 수 있나. MKV 는 ffmpeg(libavformat)가 담을 수 있으면 되고(모르면 된다고 봄),
+    /// MP4·MOV 는 거기에 더해 애플 기기에서 재생되는 코덱이어야 한다 (PCM 은 MOV 만)
+    static func fits(_ id: UInt32, in container: EncodeSettings.Container) -> Bool {
+        guard id != 0 else { return true }
+        let name = switch container { case .mp4: "mp4"; case .mov: "mov"; case .mkv: "matroska" }
+        if let fmt = av_guess_format(name, nil, nil), avformat_query_codec(fmt, AVCodecID(rawValue: id), 0) == 0 { return false }
+        guard let list = playable[container] else { return true }
+        let codec = String(cString: avcodec_get_name(AVCodecID(rawValue: id)))
+        return list.contains(codec) || (container == .mov && codec.hasPrefix("pcm_"))
+    }
+
+    /// 이 설정으로 복사할 코덱들 (영상 원본 그대로면 영상, 소리 원본 그대로면 고른 소리 트랙)
+    static func copiedCodecs(clips: [Clip], settings e: EncodeSettings, metas: [URL: SourceMeta]) -> [UInt32] {
+        var ids: [UInt32] = []
+        for c in clips {
+            guard let m = metas[c.url] else { continue }
+            if e.videoCodec == .copy { ids.append(m.videoCodec) }
+            // 한 파일로 다시 압축할 땐 소리도 늘 AAC 로 다시 압축한다
+            let audioCopied = e.audioCodec == .copy && !(e.grouping == .joined && e.videoCodec != .copy)
+            if audioCopied {
+                ids += EncodePlan.audioTracks(c, meta: m, settings: e).map { m.audioTracks[$0].codecID }
+            }
+        }
+        var seen = Set<UInt32>()
+        return ids.filter { $0 != 0 && seen.insert($0).inserted }
+    }
+
+    /// 그 형식에 담을 수 없는 코덱 이름들 (없으면 빈 배열)
+    static func misfits(_ container: EncodeSettings.Container, clips: [Clip], settings e: EncodeSettings, metas: [URL: SourceMeta]) -> [String] {
+        copiedCodecs(clips: clips, settings: e, metas: metas).filter { !fits($0, in: container) }.map(codecName)
+    }
+
+    /// 원본 그대로 한 파일로 이어 붙일 수 없는 까닭 (되면 nil). 이어 붙이기(concat)는 첫 파일의 형식으로 끝까지 읽어서
+    /// 영상 코덱·해상도·프레임률, 넣을 소리 트랙의 코덱·샘플레이트·채널이 모두 같아야 한다
+    static func joinProblem(clips: [Clip], settings e: EncodeSettings, metas: [URL: SourceMeta]) -> String? {
+        guard let first = clips.first, let a = metas[first.url] else { return nil }
+        let tracks = EncodePlan.audioTracks(first, meta: a, settings: e)
+        for c in clips.dropFirst() where c.url != first.url {
+            guard let b = metas[c.url] else { continue }
+            if a.videoCodec != b.videoCodec { return "구간마다 영상 코덱이 달라(\(codecName(a.videoCodec))·\(codecName(b.videoCodec))) 원본 그대로 이어 붙일 수 없습니다" }
+            if a.width != b.width || a.height != b.height { return "구간마다 해상도가 달라(\(a.width)×\(a.height)·\(b.width)×\(b.height)) 원본 그대로 이어 붙일 수 없습니다" }
+            if abs(a.fps - b.fps) > 0.01 { return String(format: "구간마다 프레임률이 달라(%.3g·%.3g) 원본 그대로 이어 붙일 수 없습니다", a.fps, b.fps) }
+            for k in tracks {
+                guard k < b.audioTracks.count else { return "구간마다 소리 트랙 수가 달라 원본 그대로 이어 붙일 수 없습니다" }
+                let x = a.audioTracks[k], y = b.audioTracks[k]
+                if x.codecID != y.codecID || x.sampleRate != y.sampleRate || x.channels != y.channels {
+                    return "구간마다 소리 형식이 달라 원본 그대로 이어 붙일 수 없습니다"
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 지금 설정으로 변환할 수 없는 까닭 (되면 nil): 변환 단추 위에 보이고 변환을 막는다
+    static func blocking(clips: [Clip], settings e: EncodeSettings, metas: [URL: SourceMeta]) -> String? {
+        if e.videoCodec == .copy && e.grouping == .joined, let p = joinProblem(clips: clips, settings: e, metas: metas) {
+            return p + ". 구간마다 파일 하나로 하거나 다시 압축하세요."
+        }
+        let bad = misfits(e.container, clips: clips, settings: e, metas: metas)
+        if !bad.isEmpty {
+            let ok = EncodeSettings.Container.allCases.filter { misfits($0, clips: clips, settings: e, metas: metas).isEmpty }.map(\.rawValue)
+            return "\(bad.joined(separator: "·")) 는 \(e.container.rawValue) 에 원본 그대로 담을 수 없습니다" + (ok.isEmpty ? ". 다시 압축하세요." : ". \(ok.joined(separator: "·")) 로 바꾸세요.")
+        }
+        return nil
     }
 }
 

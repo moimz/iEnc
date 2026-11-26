@@ -13,20 +13,28 @@ struct EncodeSettingsView: View {
         EncodeSettings.VideoCodec.allCases.filter { !$0.isSoftware || EncodePlan.softwareFFmpeg != nil }
     }
     private var aac: Bool { e.audioCodec == .aac }
+    /// 원본 그대로 한 파일로 이어 붙일 수 없는 까닭 (되면 nil)
+    private var joinProblem: String? { CopyCheck.joinProblem(clips: model.clips, settings: e, metas: model.metas) }
+    /// 그 형식에 원본 그대로 담을 수 없는 코덱들
+    private func misfits(_ c: EncodeSettings.Container) -> [String] { CopyCheck.misfits(c, clips: model.clips, settings: e, metas: model.metas) }
+    /// 지금 설정으로는 변환할 수 없는 까닭
+    private var blocking: String? { model.clips.isEmpty ? nil : CopyCheck.blocking(clips: model.clips, settings: e, metas: model.metas) }
 
     var body: some View {
         Form {
             Section("영상") {
                 Picker(selection: s.videoCodec) {
                     ForEach(codecs) { c in
+                        // 원본 그대로: 한 파일로 합치는데 구간끼리 형식이 다르면 고를 수 없음
                         Text(c.rawValue).tag(c)
+                            .selectionDisabled(c == .copy && e.grouping == .joined && joinProblem != nil)
                         if c == .h264 || c == .x264 { Divider() }
                     }
                 } label: { InfoLabel("변환 방식", Info.codec) }
                 if e.videoCodec.isSoftware {
                     Picker(selection: s.preset) {
                         ForEach(EncodeSettings.Preset.allCases) { Text($0.rawValue).tag($0) }
-                    } label: { InfoLabel("압축 수고", Info.preset) }
+                    } label: { InfoLabel("압축 효율", Info.preset) }
                 }
                 Group {
                     Picker(selection: s.rateMode) {
@@ -99,7 +107,13 @@ struct EncodeSettingsView: View {
             SubtitleSections(model: model)
             Section("출력") {
                 Picker("형식", selection: s.container) {
-                    ForEach(EncodeSettings.Container.allCases) { Text($0.rawValue).tag($0) }
+                    // 원본 그대로 복사하는 코덱을 담을 수 없는 형식은 고를 수 없음
+                    ForEach(EncodeSettings.Container.allCases) { c in
+                        let bad = misfits(c)
+                        Text(c.rawValue).tag(c)
+                            .selectionDisabled(!bad.isEmpty && c != e.container)
+                            .help(bad.isEmpty ? "" : "\(bad.joined(separator: "·")) 는 \(c.rawValue) 에 원본 그대로 담을 수 없습니다")
+                    }
                 }
                 .pickerStyle(.segmented)
                 Toggle("제목 태그 유지", isOn: s.keepMetadata)
@@ -124,7 +138,10 @@ struct EncodeSettingsView: View {
                     Text("구간 (\(model.clips.count)개)")
                     Spacer()
                     Picker("구간", selection: s.grouping) {
-                        ForEach(EncodeSettings.Grouping.allCases) { Text($0.rawValue).tag($0) }
+                        ForEach(EncodeSettings.Grouping.allCases) { g in
+                            Text(g.rawValue).tag(g)
+                                .selectionDisabled(g == .joined && e.videoCodec == .copy && joinProblem != nil)
+                        }
                     }
                     .labelsHidden()
                     .fixedSize()
@@ -144,6 +161,12 @@ struct EncodeSettingsView: View {
                 .font(.callout)
                 .help("비트레이트 지정·원본 그대로는 계산, 품질 기준은 짧은 조각 몇 개를 시험 인코딩해 어림합니다")
             }
+            if model.job == nil, let blocking {
+                Label(blocking, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if model.isEncoding {
                 Button(role: .cancel) { model.cancelEncode() } label: {
                     Label("취소", systemImage: "xmark").frame(maxWidth: .infinity)
@@ -159,7 +182,7 @@ struct EncodeSettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(model.clips.isEmpty)
+                .disabled(model.clips.isEmpty || blocking != nil)
             }
         }
         .padding(12)
@@ -272,7 +295,7 @@ private enum Info {
     **어떤 형식으로, 무엇으로 압축할지** 고릅니다.
 
     · **하드웨어** (HEVC·H.264): 맥의 미디어 엔진이 압축해 빠르고 CPU 를 거의 쓰지 않습니다. 대신 같은 화질이면 파일이 큽니다.
-    · **CPU** (x265·x264): 성능 코어를 다 써서 같은 화질을 더 작은 파일로 만듭니다. 보통은 하드웨어보다 느리지만, 압축 수고를 "빠르게" 로 하면 H.264(x264)는 하드웨어보다 빠를 수도 있습니다.
+    · **CPU** (x265·x264): 성능 코어를 다 써서 같은 화질을 더 작은 파일로 만듭니다. 보통은 하드웨어보다 느리지만, 압축 효율을 "속도 우선"으로 하면 H.264(x264)는 하드웨어보다 빠를 수도 있습니다.
     · **원본 그대로**: 다시 압축하지 않아 아주 빠르고 화질 손실이 없습니다. 대신 구간 시작이 가까운 키프레임으로 조금 당겨질 수 있습니다.
 
     HEVC 는 H.264 보다 같은 화질에서 30~50% 작지만, 아주 오래된 기기는 재생하지 못할 수 있습니다.
@@ -283,11 +306,11 @@ private enum Info {
 
     압축은 "이 조각과 비슷한 게 앞뒤 프레임 어디에 있나" 찾아서 차이만 저장하는 일입니다. 수고를 들일수록 더 넓게, 더 많은 경우를 시험해 더 좋은 방법을 찾습니다.
 
-    · 빠르게: 후보를 조금만 보고 고름
-    · 보통: 흔히 쓰는 균형
-    · 작게: 오래 걸리는 대신 같은 화질을 더 작은 파일로
+    · 속도 우선: 후보를 조금만 보고 고름
+    · 균형: 흔히 쓰는 중간
+    · 압축률 우선: 오래 걸리는 대신 같은 화질을 더 작은 파일로
 
-    CPU 를 얼마나 쓰느냐가 아닙니다 (그건 설정 › CPU 사용량). 예: 720p 2분 영상, x265 빠르게 약 20초 · 보통 약 30초.
+    CPU 를 얼마나 쓰느냐가 아닙니다 (그건 설정 › CPU 사용량). 예: 720p 2분 영상, x265 속도 우선 약 20초 · 균형 약 30초.
     """
 
     static let rateMode = """

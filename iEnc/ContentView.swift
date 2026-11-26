@@ -86,15 +86,27 @@ struct ContentView: View {
             // 시험용: iEnc -open <파일>
             let args = ProcessInfo.processInfo.arguments
             // 시험용: -open <파일> [<파일>…] (여러 개면 첫 영상을 열고 나머지는 사이드바에)
-            if let i = args.firstIndex(of: "-open") {
-                let files = args[(i + 1)...].prefix { !$0.hasPrefix("-") }.map { URL(fileURLWithPath: $0) }
-                model.importFiles(files)
+            // 여러 파일은 -open a -open b 로도 (따로 떨어진 파일 경로 인자는 AppKit 이 "문서 열기"로 받아
+            // 빈 창을 안 만들 때가 있다 → 시험 앱이 창 없이 멈춤, 2026-11-27)
+            let files = args.indices.filter { args[$0] == "-open" }.flatMap { i in
+                args[(i + 1)...].prefix { !$0.hasPrefix("-") }.map { URL(fileURLWithPath: $0) }
             }
+            if !files.isEmpty { model.importFiles(files) }
             // 시험용: -demo 를 붙이면 열린 영상에서 구간 둘을 잘라 넣고 첫 구간을 고른다 (화면 확인용)
             // 시험용: -settings 를 붙이면 설정 창을 연다 (화면 확인용)
             if args.contains("-settings") { openSettings() }
             if let kv = EncodeTest.arguments { EncodeTest.run(model: model, kv) }
             // 자막 설정 화면 보기용: 구간 둘 + 자막 포함 켜기 + 자막 입히기
+            // 원본 그대로 검사 화면 보기용: 연 영상들마다 구간 하나 + 원본 그대로 (뒤에 joined 를 주면 한 파일로)
+            if args.contains("-copydemo") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    for source in model.sources {
+                        model.clips.append(Clip(url: source.url, start: 0, end: min(5, max(1, source.duration))))
+                    }
+                    model.encode.videoCodec = .copy
+                    if args.contains("-joined") { model.encode.grouping = .joined }
+                }
+            }
             if args.contains("-subdemo") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     model.setOut(45); model.setIn(30); model.cut()

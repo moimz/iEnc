@@ -76,6 +76,13 @@ enum EncodeTest {
                 let estimate = model.estimate
                 var before = rusage()
                 getrusage(RUSAGE_CHILDREN, &before)
+                // 막힌 조합은 변환하지 않고 그 까닭만 남긴다
+                if let blocked = CopyCheck.blocking(clips: model.clips, settings: model.encode, metas: model.metas) {
+                    let report = out.appendingPathComponent("report.tsv")
+                    if !FileManager.default.fileExists(atPath: report.path) { try? "".write(to: report, atomically: true, encoding: .utf8) }
+                    if let h = try? FileHandle(forWritingTo: report) { h.seekToEndOfFile(); h.write("\(name)\tBLOCKED: \(blocked)\n".data(using: .utf8)!); try? h.close() }
+                    exit(0)
+                }
                 model.startEncode(folder: out, template: "\(name)_{번호}")
                 if kv["bg"] == "1" { model.job?.lowPriority = true }
                 Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { t3 in

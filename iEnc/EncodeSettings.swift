@@ -18,9 +18,9 @@ struct EncodeSettings: Equatable {
     }
     /// 소프트웨어 인코더가 장면마다 들이는 수고 (CPU 사용량이 아니라 같은 화질을 얼마나 작게 담느냐)
     enum Preset: String, CaseIterable, Identifiable {
-        case fast = "빠르게"
-        case medium = "보통"
-        case small = "작게 (느림)"
+        case fast = "속도 우선"
+        case medium = "균형"
+        case small = "압축률 우선"
         var id: Self { self }
         var x26x: String {
             switch self {

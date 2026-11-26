@@ -182,6 +182,8 @@ final class AppModel {
     @discardableResult
     func startEncode(folder override: URL? = nil, template overrideTemplate: String? = nil) -> Bool {
         guard !clips.isEmpty, !isEncoding else { return false }
+        // 원본 그대로가 안 되는 조합(담을 수 없는 코덱, 형식이 다른 구간 이어 붙이기)은 시작하지 않는다
+        guard CopyCheck.blocking(clips: clips, settings: encode, metas: metas) == nil else { return false }
         if isPlaying { pause() }
         let defaults = UserDefaults.standard
         let location = SaveLocation(rawValue: defaults.string(forKey: "saveLocation") ?? "") ?? .source
