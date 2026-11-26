@@ -2,6 +2,10 @@
 
 맥에서 영상을 구간 지정해 빠르게 인코딩하는 앱입니다. (만드는 중)
 
+![iEnc: 여러 영상에서 구간을 골라 타임라인에 쌓고 인코딩 설정을 고르는 화면](docs/screenshots/main.png)
+
+<sub>화면 속 영상: Big Buck Bunny · Tears of Steel © Blender Foundation, CC BY 3.0 (peach.blender.org · mango.blender.org)</sub>
+
 지금 되는 것:
 
 - 영상을 창에 끌어 놓거나 **영상 불러오기** 로 열면 FFmpeg 로 직접 풀어 미리보기합니다. QuickTime 이 못 여는 MKV · AVI · WMV · FLV · RM · VOB · TS 등도 확장 설치 없이 열립니다.

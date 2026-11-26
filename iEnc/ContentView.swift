@@ -109,6 +109,24 @@ struct ContentView: View {
             if args.contains("-about") { openWindow(id: AboutView.windowID) }
             if let kv = EncodeTest.arguments { EncodeTest.run(model: model, kv) }
             // 자막 설정 화면 보기용: 구간 둘 + 자막 포함 켜기 + 자막 입히기
+            // 스크린샷용 장면: -clip <영상 번호(0부터)>:<시작초>:<끝초> 여러 번, -select <구간 번호(0부터)>, -gain <구간 번호>:<dB>
+            let clipSpecs = args.indices.filter { args[$0] == "-clip" && $0 + 1 < args.count }.map { args[$0 + 1] }
+            if !clipSpecs.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    for spec in clipSpecs {
+                        let p = spec.split(separator: ":").compactMap { Double($0) }
+                        guard p.count == 3, model.sources.indices.contains(Int(p[0])) else { continue }
+                        model.clips.append(Clip(url: model.sources[Int(p[0])].url, start: p[1], end: p[2]))
+                    }
+                    if let i = args.firstIndex(of: "-gain"), i + 1 < args.count {
+                        let p = args[i + 1].split(separator: ":").compactMap { Double($0) }
+                        if p.count == 2, model.clips.indices.contains(Int(p[0])) { model.setGain(model.clips[Int(p[0])].id, p[1]) }
+                    }
+                    if let i = args.firstIndex(of: "-select"), i + 1 < args.count, let n = Int(args[i + 1]), model.clips.indices.contains(n) {
+                        model.selectedClipID = model.clips[n].id
+                    }
+                }
+            }
             // 원본 그대로 검사 화면 보기용: 연 영상들마다 구간 하나 + 원본 그대로 (뒤에 joined 를 주면 한 파일로)
             if args.contains("-copydemo") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
