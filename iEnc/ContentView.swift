@@ -8,6 +8,7 @@ struct ContentView: View {
     @FocusState private var focused: Bool
     @AppStorage("hardwareDecoding") private var hardware = false
     @AppStorage("showEncode") private var showEncode = true
+    @AppStorage("showInfo") private var showInfo = true
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -40,6 +41,12 @@ struct ContentView: View {
                     .inspectorColumnWidth(310)
             }
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showInfo.toggle() } label: {
+                        Label("영상 정보", systemImage: "info.circle")
+                    }
+                    .help("영상 정보 보이기·숨기기")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showEncode.toggle() } label: {
                         Label("인코딩 설정", systemImage: "sidebar.right")
@@ -100,6 +107,7 @@ struct EditorPane: View {
     @State private var importing = false
     /// 영상 정보 칸 폭 (경계를 끌어 바꿈, 창 크기가 바뀌어도 그대로 → 줄고 느는 건 미리보기만)
     @AppStorage("infoWidth") private var infoWidth: Double = 320
+    @AppStorage("showInfo") private var showInfo = true
     @State private var dragStartWidth: Double?
 
     var body: some View {
@@ -110,9 +118,11 @@ struct EditorPane: View {
                     preview
                         .frame(minWidth: 200, maxWidth: .infinity)
                         .layoutPriority(1)
-                    infoDivider
-                    InfoPanel(model: model)
-                        .frame(width: min(infoWidth, max(200, geo.size.width - 201)))
+                    if showInfo {
+                        infoDivider
+                        InfoPanel(model: model)
+                            .frame(width: min(infoWidth, max(200, geo.size.width - 201)))
+                    }
                 }
             }
             .frame(minHeight: 200, maxHeight: .infinity)

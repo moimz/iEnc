@@ -276,15 +276,12 @@ final class AppModel {
         if let id = selectedClipID, ids.contains(id) { selectedClipID = nil }
     }
 
-    /// 타임라인에서 끌어 놓기: id 구간을 target 앞으로 (nil 이면 맨 끝)
-    func moveClip(_ id: Clip.ID, before target: Clip.ID?) {
+    /// 타임라인에서 끌어 놓기: id 구간을 target 구간 앞(또는 뒤)으로
+    func moveClip(_ id: Clip.ID, beside target: Clip.ID, after: Bool) {
         guard id != target, let from = clips.firstIndex(where: { $0.id == id }) else { return }
         let clip = clips.remove(at: from)
-        if let target, let to = clips.firstIndex(where: { $0.id == target }) {
-            clips.insert(clip, at: to)
-        } else {
-            clips.append(clip)
-        }
+        guard let to = clips.firstIndex(where: { $0.id == target }) else { clips.insert(clip, at: from); return }
+        clips.insert(clip, at: after ? to + 1 : to)
     }
 
     func setGain(_ id: Clip.ID, _ db: Double) {

@@ -13,7 +13,6 @@ struct ClipTimeline: View {
     static let audioHeight: CGFloat = 38
     static let rulerHeight: CGFloat = 20
     private let spacing: CGFloat = 3
-    private let addWidth: CGFloat = 76
     /// 최대 확대: 1초에 80pt
     private let maxPPS: Double = 80
 
@@ -22,7 +21,8 @@ struct ClipTimeline: View {
             header
             GeometryReader { geo in
                 let total = model.clips.reduce(0) { $0 + $1.length }
-                let usable = max(100, geo.size.width - 24 - addWidth - spacing * CGFloat(model.clips.count))
+                // 전체 보기 = 구간들이 타임라인 폭을 꽉 채움
+                let usable = max(100, geo.size.width - 24 - spacing * CGFloat(max(0, model.clips.count - 1)))
                 let fitPPS = total > 0 ? Double(usable) / total : 1
                 let maxZoom = max(1, maxPPS / fitPPS)
                 let pps = fitPPS * exp(zoom * log(maxZoom))
@@ -35,7 +35,6 @@ struct ClipTimeline: View {
                             ForEach(Array(model.clips.enumerated()), id: \.element.id) { i, clip in
                                 ClipBlock(model: model, clip: clip, width: widths[i])
                             }
-                            endDropZone
                         }
                     }
                     .padding(.horizontal, 12)
@@ -95,17 +94,6 @@ struct ClipTimeline: View {
         .disabled(model.clips.isEmpty)
     }
 
-    /// 맨 끝 빈 자리: 구간을 여기에 끌어 놓으면 맨 뒤로
-    private var endDropZone: some View {
-        Color.clear
-            .frame(width: addWidth, height: Self.videoHeight + Self.audioHeight + 2)
-            .contentShape(Rectangle())
-            .dropDestination(for: String.self) { items, _ in
-                guard let id = items.first.flatMap(UUID.init(uuidString:)) else { return false }
-                model.moveClip(id, before: nil)
-                return true
-            }
-    }
 }
 
 /// 타임라인 위 시간 눈금자: 구간을 이어 붙인 결과(변환한 영상)의 시각. 확대 정도에 맞춰 눈금 간격을 고른다.
@@ -193,17 +181,18 @@ private struct ClipBlock: View {
                     .allowsHitTesting(false)
             }
         }
-        .overlay(alignment: .leading) {
-            // 끌어 놓을 자리 표시 (이 구간 앞)
+        .overlay {
+            // 끌어 놓을 구간 표시 (왼쪽 반에 놓으면 앞, 오른쪽 반이면 뒤)
             if dropTarget {
-                Capsule().fill(Color.accentColor).frame(width: 3).offset(x: -3)
+                RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor, lineWidth: 2).allowsHitTesting(false)
             }
         }
         .contentShape(Rectangle())
         .onTapGesture { model.selectedClipID = clip.id }
-        .dropDestination(for: String.self) { items, _ in
+        // 놓은 자리가 구간 왼쪽 반이면 이 구간 앞, 오른쪽 반이면 뒤로
+        .dropDestination(for: String.self) { items, location in
             guard let id = items.first.flatMap(UUID.init(uuidString:)) else { return false }
-            model.moveClip(id, before: clip.id)
+            model.moveClip(id, beside: clip.id, after: location.x > width / 2)
             return true
         } isTargeted: { dropTarget = $0 }
         .contextMenu {
