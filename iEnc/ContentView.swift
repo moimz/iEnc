@@ -63,17 +63,23 @@ struct EditorPane: View {
     @Bindable var model: AppModel
     @State private var dropping = false
     @State private var importing = false
+    /// 영상 정보 칸 폭 (경계를 끌어 바꿈, 창 크기가 바뀌어도 그대로 → 줄고 느는 건 미리보기만)
+    @AppStorage("infoWidth") private var infoWidth: Double = 320
+    @State private var dragStartWidth: Double?
 
     var body: some View {
         VStack(spacing: 0) {
-            HSplitView {
+            HStack(spacing: 0) {
                 preview
-                    .frame(minWidth: 320)
+                    .frame(minWidth: 320, maxWidth: .infinity)
+                    .layoutPriority(1)
+                infoDivider
                 InfoPanel(model: model)
-                    .frame(minWidth: 240, idealWidth: 320, maxWidth: 520)
+                    .frame(width: infoWidth)
             }
-            .frame(minHeight: 260)
+            .frame(minHeight: 200, maxHeight: .infinity)
 
+            // 아래는 높이 고정: 창이 줄면 위 미리보기만 준다
             if model.url != nil {
                 TrimBar(model: model)
                     .padding(.horizontal, 12)
@@ -83,11 +89,33 @@ struct EditorPane: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }
-            EncodeSettingsArea()
+            EncodeSettingsView(model: model)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
             if case .success(let url) = result { model.openNew(url) }
         }
+    }
+
+    /// 미리보기와 정보 사이 경계: 끌어서 정보 폭 240~520
+    private var infoDivider: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .overlay {
+                Color.clear
+                    .frame(width: 8)
+                    .contentShape(Rectangle())
+                    .pointerStyle(.columnResize)
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { v in
+                                if dragStartWidth == nil { dragStartWidth = infoWidth }
+                                infoWidth = min(520, max(240, (dragStartWidth ?? infoWidth) - v.translation.width))
+                            }
+                            .onEnded { _ in dragStartWidth = nil }
+                    )
+            }
     }
 
     private var preview: some View {
@@ -159,21 +187,6 @@ struct CutActions: View {
             }
         }
         .disabled(model.duration <= 0)
-    }
-}
-
-/// 인코딩 설정 자리 (아직 비어 있음)
-struct EncodeSettingsArea: View {
-    var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            Text("인코딩 설정 (준비 중)")
-                .font(.callout)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(height: 150)
-        .background(.background.secondary)
     }
 }
 

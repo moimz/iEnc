@@ -11,6 +11,8 @@ final class AppModel {
 
     // MARK: 사이드바: 자른 구간
     var clips: [Clip] = []
+    /// 인코딩 설정 (화면 아래. 아직 변환 기능 없음)
+    var encode = EncodeSettings()
     /// 사이드바에서 고른 구간. 고르면 그 원본과 범위를 연다
     var selectedClipID: Clip.ID? {
         didSet { if let id = selectedClipID, id != oldValue { load(id) } }
