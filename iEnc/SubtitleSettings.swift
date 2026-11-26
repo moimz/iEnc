@@ -52,12 +52,8 @@ struct SubtitleSections: View {
                 ForEach(Array(model.clips.enumerated()), id: \.element.id) { i, clip in
                     DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(clip.id) },
                                                         set: { if $0 { collapsed.remove(clip.id) } else { collapsed.insert(clip.id) } })) {
-                        // 구간 이름 아래로 들여 써서 단계가 보이게
-                        Group {
-                            tracksRow(clip)
-                            externalRow(clip)
-                        }
-                        .padding(.leading, 16)
+                        tracksRow(clip)
+                        externalRow(clip)
                     } label: {
                         HStack(spacing: 6) {
                             Text("구간 #\(i + 1)").fontWeight(.medium)
@@ -110,7 +106,8 @@ struct SubtitleSections: View {
         let tracks = model.metas[clip.url]?.subtitles ?? []
         let chosen = model.clipSubtitles[clip.id]?.tracks
         let included = chosen ?? Array(tracks.indices)
-        LabeledContent("자막 트랙") {
+        // 줄 전체를 들여 쓰면 오른쪽 칸이 잘려서, 라벨만 들여 쓴다
+        LabeledContent {
             if tracks.isEmpty {
                 Text("없음").foregroundStyle(.secondary)
             } else {
@@ -130,12 +127,14 @@ struct SubtitleSections: View {
                 }
                 .fixedSize()
             }
+        } label: {
+            Text("자막 트랙").padding(.leading, 16)
         }
     }
 
     @ViewBuilder
     private func externalRow(_ clip: Clip) -> some View {
-        LabeledContent("외부 자막") {
+        LabeledContent {
             if let url = model.clipSubtitles[clip.id]?.external {
                 HStack(spacing: 4) {
                     Text(url.lastPathComponent)
@@ -153,6 +152,8 @@ struct SubtitleSections: View {
                 Button("고르기…") { pickingFor = clip.id }
                     .help("SMI · SRT · ASS · VTT 같은 자막 파일")
             }
+        } label: {
+            Text("외부 자막").padding(.leading, 16)
         }
         .fileImporter(isPresented: Binding(get: { pickingFor == clip.id }, set: { if !$0 { pickingFor = nil } }),
                       allowedContentTypes: Self.fileTypes) { result in
