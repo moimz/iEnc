@@ -59,6 +59,14 @@ enum EncodeTest {
                 model.clips.append(Clip(url: s.url, start: start, end: min(s.duration, start + len)))
             }
             if let g = kv["gain"], let v = Double(g), let first = model.clips.first { model.setGain(first.id, v) }
+            // tracks=2 · tracks=1,2 · tracks=none (1부터). 구간마다 다르게: tracks=2/1,2 (슬래시로 구간 순서대로)
+            if let t = kv["tracks"] {
+                let per = t.split(separator: "/").map(String.init)
+                for i in model.clips.indices {
+                    let spec = per[min(i, per.count - 1)]
+                    model.clips[i].audioTracks = spec == "none" ? [] : spec.split(separator: ",").compactMap { Int($0).map { $0 - 1 } }
+                }
+            }
             // CPU 제한은 앱 설정 값을 잠깐 바꿨다가 되돌린다
             let oldCPU = UserDefaults.standard.object(forKey: "cpuLimit")
             if let c = kv["cpu"], let v = Double(c) { UserDefaults.standard.set(v, forKey: "cpuLimit") }

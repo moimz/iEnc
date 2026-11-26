@@ -210,7 +210,9 @@ enum FF {
 
     static func tag(_ dict: OpaquePointer?, _ key: String) -> String? {
         guard let e = av_dict_get(dict, key, nil, 0), let v = e.pointee.value else { return nil }
-        return text(v)
+        // 빈 태그(title= 처럼 값 없이 있는 것)는 없는 셈 — 정보 칸에 빈 줄이 생겨 옆 줄과 겹친다
+        let s = text(v).trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? nil : s
     }
 
     /// 태그 글자: UTF-8 이 아니면 옛 윈도우 인코딩(한국어 CP949 · 일본어 Shift-JIS · 중국어)을 골라 푼다.

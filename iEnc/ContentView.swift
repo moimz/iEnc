@@ -221,6 +221,7 @@ struct CutActions: View {
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(.tertiary)
             Spacer()
+            if !model.audioTracks.isEmpty { AudioTrackButton(model: model) }
             if model.selectedClip != nil {
                 Button("구간 적용") { model.applyToSelected() }
                     .disabled(!model.selectionChanged)
@@ -239,6 +240,62 @@ struct CutActions: View {
             }
         }
         .disabled(model.duration <= 0)
+    }
+}
+
+/// 구간 자르기 옆: 소리 트랙 고르기. 누르면 말풍선에서
+/// 미리보기로 들을 트랙(하나)과 자를 구간에 넣을 트랙(여럿·하나·없음)을 고른다
+struct AudioTrackButton: View {
+    @Bindable var model: AppModel
+    @State private var shown = false
+
+    private var tracks: [AudioTrack] { model.audioTracks }
+    private var included: [Int] { model.cutTracks ?? Array(tracks.indices) }
+
+    private var title: String {
+        if included.isEmpty { return "소리 없음" }
+        if tracks.count == 1 { return "소리" }
+        if model.cutTracks == nil { return "소리 모두" }
+        return included.map { tracks[$0].short($0 + 1) }.joined(separator: "·")
+    }
+
+    var body: some View {
+        Button { shown.toggle() } label: {
+            Label(title, systemImage: included.isEmpty ? "speaker.slash" : "speaker.wave.2")
+                .lineLimit(1)
+        }
+        .help("미리보기로 들을 소리 트랙과, 자를 구간에 넣을 소리 트랙을 고릅니다")
+        .popover(isPresented: $shown, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                if tracks.count > 1 {
+                    Text("미리보기로 듣기").font(.subheadline.weight(.semibold))
+                    Picker("미리보기로 듣기", selection: Binding(get: { model.listenTrack }, set: { model.listen($0) })) {
+                        ForEach(tracks.indices, id: \.self) { i in Text(tracks[i].label(i + 1)).tag(i) }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                    Divider().padding(.vertical, 2)
+                }
+                HStack {
+                    Text(model.selectedClip != nil ? "이 구간에 넣을 소리" : "자를 구간에 넣을 소리").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    if tracks.count > 1 {
+                        Button("모두") { model.cutTracks = nil }.controlSize(.small)
+                    }
+                    Button("없음") { model.cutTracks = [] }.controlSize(.small)
+                }
+                ForEach(tracks.indices, id: \.self) { i in
+                    Toggle(tracks[i].label(i + 1), isOn: Binding(get: { included.contains(i) }, set: { _ in model.toggleCutTrack(i) }))
+                        .toggleStyle(.checkbox)
+                }
+                Text(model.selectedClip != nil ? "바꾸면 구간 적용을 눌러야 이 구간에 들어갑니다." : "여러 개를 고르면 변환한 파일에 소리 트랙이 그만큼 들어갑니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .frame(width: 300)
+        }
     }
 }
 

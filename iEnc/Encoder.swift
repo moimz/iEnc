@@ -9,7 +9,9 @@ struct SourceMeta {
     /// 화소 가로세로 비율 (1 = 정사각)
     var sar = 1.0
     var fps = 0.0
-    var hasAudio = false
+    /// 소리 트랙들 (원본 순서)
+    var audioTracks: [AudioTrack] = []
+    var hasAudio: Bool { !audioTracks.isEmpty }
     var bitRate = 0.0
     /// 자막 스트림 코덱 이름들
     var subtitles: [String] = []
@@ -41,12 +43,49 @@ struct SourceMeta {
                 if !angle.isNaN { m.rotation = ((Int((-angle).rounded()) % 360) + 360) % 360 }
             }
         }
-        m.hasAudio = av_find_best_stream(ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nil, 0) >= 0
+        m.audioTracks = AudioTrack.list(ctx)
         for i in 0..<Int(ctx.pointee.nb_streams) {
             guard let par = ctx.pointee.streams[i]?.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_SUBTITLE else { continue }
             m.subtitles.append(String(cString: avcodec_get_name(par.pointee.codec_id)))
         }
         return m
+    }
+}
+
+/// 원본의 소리 트랙 하나 (언어·제목·코덱·채널)
+struct AudioTrack: Hashable {
+    var language: String?
+    var title: String?
+    var codec: String
+    var channels: Int
+    /// 원본에 기본 트랙 표시가 있는지
+    var isDefault = false
+
+    /// "#1 eng · AAC 스테레오" (number 는 1부터)
+    func label(_ number: Int) -> String {
+        var head = "#\(number)"
+        if let language, language != "und" { head += " " + language }
+        if let title { head += " " + title }
+        let ch = switch channels { case 1: "모노"; case 2: "스테레오"; case 6: "5.1"; case 8: "7.1"; default: "\(channels)채널" }
+        return "\(head) · \(codec.uppercased()) \(ch)"
+    }
+
+    /// 짧게: "eng" 또는 "#1"
+    func short(_ number: Int) -> String {
+        if let language, language != "und" { return language }
+        return "#\(number)"
+    }
+
+    static func list(_ ctx: UnsafeMutablePointer<AVFormatContext>) -> [AudioTrack] {
+        var out: [AudioTrack] = []
+        for i in 0..<Int(ctx.pointee.nb_streams) {
+            guard let st = ctx.pointee.streams[i], let par = st.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { continue }
+            out.append(AudioTrack(language: FF.tag(st.pointee.metadata, "language"), title: FF.tag(st.pointee.metadata, "title"),
+                                  codec: String(cString: avcodec_get_name(par.pointee.codec_id)),
+                                  channels: Int(par.pointee.ch_layout.nb_channels),
+                                  isDefault: st.pointee.disposition & AV_DISPOSITION_DEFAULT != 0))
+        }
+        return out
     }
 }
 
@@ -146,6 +185,19 @@ enum EncodePlan {
         return a
     }
 
+    /// 구간에 넣을 원본 소리 트랙 번호들 (0부터). 소리 "없음"이면 빈 배열
+    static func audioTracks(_ clip: Clip, meta: SourceMeta, settings e: EncodeSettings) -> [Int] {
+        guard e.audioCodec != .none else { return [] }
+        let n = meta.audioTracks.count
+        return clip.audioTracks.map { $0.filter { $0 < n } } ?? Array(0..<n)
+    }
+
+    /// 소리 트랙이 여럿이면 첫 트랙만 기본(default) 표시
+    static func dispositionArgs(count: Int) -> [String] {
+        guard count > 1 else { return [] }
+        return (0..<count).flatMap { ["-disposition:a:\($0)", $0 == 0 ? "default" : "0"] }
+    }
+
     /// 짝수로 (영상 인코더는 홀수 크기를 못 받는다)
     static func even(_ v: Double) -> Int { max(2, Int((v / 2).rounded()) * 2) }
 
@@ -219,7 +271,7 @@ enum EncodePlan {
         guard let first = clips.first else { return [] }
         let name = FileNameTemplate.render(template, name: first.url.deletingPathExtension().lastPathComponent, number: 1, start: first.start)
         let out = outputURL(folder: folder(first.url), name: name, ext: ext(e), taken: &taken)
-        if e.videoCodec == .copy { return [joinedCopy(clips, settings: e, output: out)] }
+        if e.videoCodec == .copy { return [joinedCopy(clips, metas: metas, settings: e, output: out)] }
         return [joined(clips, metas: metas, settings: e, output: out)]
     }
 
@@ -227,7 +279,8 @@ enum EncodePlan {
         var notes: [String] = []
         // 영상은 다시 압축하고 소리만 그대로 복사하면, 입력 쪽 탐색(-ss)이 복사하는 소리를 앞 키프레임부터 가져와
         // 앞에 몇 초가 더 붙는다 → 조금 앞에서 입력 탐색하고 나머지는 출력 쪽 -ss 로 정확히 잘라 낸다
-        let mixedCopy = e.videoCodec != .copy && e.audioCodec == .copy && meta.hasAudio
+        let tracks = audioTracks(clip, meta: meta, settings: e)
+        let mixedCopy = e.videoCodec != .copy && e.audioCodec == .copy && !tracks.isEmpty
         let pre = mixedCopy ? min(clip.start, 3) : 0
         var a = ["-hide_banner", "-nostdin", "-y"] + threadArgs() + [
                  "-ss", String(format: "%.3f", clip.start - pre)]
@@ -235,7 +288,7 @@ enum EncodePlan {
         a += ["-i", clip.url.path]
         if mixedCopy { a += ["-ss", String(format: "%.3f", pre), "-t", String(format: "%.3f", clip.length)] }
         a += ["-map", "0:v:0"]
-        if e.audioCodec != .none && meta.hasAudio { a += ["-map", "0:a:0"] }
+        for k in tracks { a += ["-map", "0:a:\(k)"] }
         // 자막: MKV 는 그대로, MP4·MOV 는 글자 자막만 mov_text 로 (그림 자막은 못 넣음)
         if e.keepSubtitles && !meta.subtitles.isEmpty {
             if e.container == .mkv {
@@ -251,7 +304,7 @@ enum EncodePlan {
         }
         if e.videoCodec != .copy, let vf = videoFilter(e, meta: meta, all: all) { a += ["-vf", vf] }
         a += videoCodecArgs(e)
-        if e.audioCodec == .aac && meta.hasAudio {
+        if e.audioCodec == .aac && !tracks.isEmpty {
             var af: [String] = []
             if clip.gain != 0 { af.append(String(format: "volume=%.1fdB", clip.gain)) }
             if e.normalizeLoudness { af.append("loudnorm=I=-16:TP=-1.5:LRA=11") }
@@ -259,7 +312,7 @@ enum EncodePlan {
         } else if e.audioCodec == .copy && clip.gain != 0 {
             notes.append("소리 '원본 그대로' 라 구간 음량(\(String(format: "%+.1f", clip.gain)) dB)은 적용하지 않았습니다")
         }
-        a += audioCodecArgs(e)
+        a += tracks.isEmpty ? ["-an"] : audioCodecArgs(e) + dispositionArgs(count: tracks.count)
         a += containerArgs(e)
         a += ["-progress", "pipe:1", "-nostats", "-loglevel", "error", output.path]
         return Output(url: output, args: a, duration: clip.length, notes: notes)
@@ -270,7 +323,10 @@ enum EncodePlan {
         let (w, h) = joinedSize(e, metas: clips.compactMap { metas[$0.url] })
         let fpsList = clips.compactMap { metas[$0.url]?.fps }.filter { $0 > 0 }
         let fps: Double = e.frameRate != .source ? e.frameRate.rawValue : (fpsList.max() ?? 30)
-        let withAudio = e.audioCodec != .none
+        // 소리 트랙 수 = 구간들 중 가장 많이 고른 수. 트랙이 모자란 구간은 그 자리를 무음으로 채운다
+        let trackLists = clips.map { audioTracks($0, meta: metas[$0.url] ?? SourceMeta(), settings: e) }
+        let trackCount = trackLists.map(\.count).max() ?? 0
+        let withAudio = trackCount > 0
         let channels = e.channels == .mono ? "mono" : "stereo"
         var a = ["-hide_banner", "-nostdin", "-y"] + threadArgs()
         // 합칠 땐 ffmpeg 자동 회전이 필터 그래프에 안 들어가서, 끄고 직접 돌린다
@@ -306,32 +362,39 @@ enum EncodePlan {
             v.append(String(format: "fps=%.3f", fps))
             v.append("format=" + pixelFormat(e))
             graph.append("[\(i):v:0]\(v.joined(separator: ","))[v\(i)]")
-            if withAudio {
+            concatIn += "[v\(i)]"
+            for j in 0..<trackCount {
                 var af = ["aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=\(channels)"]
                 if c.gain != 0 { af.append(String(format: "volume=%.1fdB", c.gain)) }
-                if meta.hasAudio {
-                    graph.append("[\(i):a:0]\(af.joined(separator: ","))[a\(i)]")
+                if j < trackLists[i].count {
+                    graph.append("[\(i):a:\(trackLists[i][j])]\(af.joined(separator: ","))[a\(i)_\(j)]")
                 } else {
-                    // 소리 없는 구간은 그 길이만큼 무음
-                    graph.append("anullsrc=r=48000:cl=\(channels),atrim=duration=\(String(format: "%.3f", c.length))[a\(i)]")
+                    // 소리 없는(또는 트랙이 모자란) 구간은 그 길이만큼 무음
+                    graph.append("anullsrc=r=48000:cl=\(channels),atrim=duration=\(String(format: "%.3f", c.length))[a\(i)_\(j)]")
                 }
-                concatIn += "[v\(i)][a\(i)]"
-            } else {
-                concatIn += "[v\(i)]"
+                concatIn += "[a\(i)_\(j)]"
             }
         }
-        graph.append("\(concatIn)concat=n=\(clips.count):v=1:a=\(withAudio ? 1 : 0)[v]" + (withAudio ? "[a]" : ""))
-        var audioLabel = "[a]"
-        if withAudio && e.normalizeLoudness {
-            graph.append("[a]loudnorm=I=-16:TP=-1.5:LRA=11[an]")
-            audioLabel = "[an]"
+        graph.append("\(concatIn)concat=n=\(clips.count):v=1:a=\(trackCount)[v]" + (0..<trackCount).map { "[a\($0)]" }.joined())
+        var audioLabels = (0..<trackCount).map { "[a\($0)]" }
+        if e.normalizeLoudness {
+            for j in 0..<trackCount { graph.append("[a\(j)]loudnorm=I=-16:TP=-1.5:LRA=11[an\(j)]") }
+            audioLabels = (0..<trackCount).map { "[an\($0)]" }
         }
         a += ["-filter_complex", graph.joined(separator: ";"), "-map", "[v]"]
-        if withAudio { a += ["-map", audioLabel] }
+        for label in audioLabels { a += ["-map", label] }
         a += videoCodecArgs(e)
         if withAudio {
             // 합칠 땐 소리를 늘 다시 압축 (구간마다 형식이 다를 수 있어서)
             a += ["-c:a", "aac", "-b:a", "\(e.audioBitrate)k"]
+            // 필터를 거친 소리엔 언어 표시가 없어서, 그 자리 트랙을 처음 가진 구간의 언어를 붙인다
+            for j in 0..<trackCount {
+                if let i = trackLists.firstIndex(where: { $0.count > j }),
+                   let lang = metas[clips[i].url]?.audioTracks[trackLists[i][j]].language {
+                    a += ["-metadata:s:a:\(j)", "language=\(lang)"]
+                }
+            }
+            a += dispositionArgs(count: trackCount)
         }
         a += containerArgs(e)
         a += ["-progress", "pipe:1", "-nostats", "-loglevel", "error", output.path]
@@ -342,19 +405,22 @@ enum EncodePlan {
     }
 
     /// 원본 그대로 한 파일로: concat 디먹서 (같은 형식 영상끼리만 됨, 구간 시작은 키프레임에 맞춰짐)
-    static func joinedCopy(_ clips: [Clip], settings e: EncodeSettings, output: URL) -> Output {
+    static func joinedCopy(_ clips: [Clip], metas: [URL: SourceMeta], settings e: EncodeSettings, output: URL) -> Output {
         let list = FileManager.default.temporaryDirectory.appendingPathComponent("iEnc-concat-\(UUID().uuidString).txt")
         let text = clips.map { c in
             "file '\(c.url.path.replacingOccurrences(of: "'", with: "'\\''"))'\ninpoint \(String(format: "%.3f", c.start))\noutpoint \(String(format: "%.3f", c.end))"
         }.joined(separator: "\n")
         try? text.write(to: list, atomically: true, encoding: .utf8)
         var a = ["-hide_banner", "-nostdin", "-y"] + threadArgs() + ["-f", "concat", "-safe", "0", "-i", list.path, "-map", "0:v:0"]
-        if e.audioCodec != .none { a += ["-map", "0:a:0?"] }
+        // 이어 붙인 입력의 스트림은 첫 파일을 따른다 → 소리 트랙도 첫 구간의 선택대로
+        let tracks = clips.first.map { audioTracks($0, meta: metas[$0.url] ?? SourceMeta(), settings: e) } ?? []
+        for k in tracks { a += ["-map", "0:a:\(k)"] }
         a += ["-c:v", "copy"]
-        a += e.audioCodec == .none ? ["-an"] : (e.audioCodec == .copy ? ["-c:a", "copy"] : audioCodecArgs(e))
+        a += tracks.isEmpty ? ["-an"] : (e.audioCodec == .copy ? ["-c:a", "copy"] : audioCodecArgs(e)) + dispositionArgs(count: tracks.count)
         a += containerArgs(e)
         a += ["-progress", "pipe:1", "-nostats", "-loglevel", "error", output.path]
         var notes = ["원본 그대로 합치기는 같은 코덱·해상도 영상끼리만 됩니다"]
+        if Set(clips.map { $0.audioTracks }).count > 1 { notes.append("원본 그대로 합치기는 소리 트랙을 첫 구간의 선택대로 넣습니다") }
         if clips.contains(where: { $0.gain != 0 }) && e.audioCodec == .copy { notes.append("소리 '원본 그대로' 라 구간 음량은 적용하지 않았습니다") }
         return Output(url: output, args: a, duration: clips.reduce(0) { $0 + $1.length }, notes: notes, temp: [list])
     }
@@ -551,6 +617,10 @@ enum SizeEstimate {
         case .aac: Double(e.audioBitrate) * 1000
         case .copy: 192_000  // 원본 소리 비트레이트를 따로 모르면 대략
         }
+        // 소리는 트랙 수만큼 (구간마다 고른 트랙 수 × 길이)
+        let audioBytes = audioBps / 8 * clips.reduce(0.0) { sum, c in
+            sum + Double(EncodePlan.audioTracks(c, meta: metas[c.url] ?? SourceMeta(), settings: e).count) * c.length
+        }
         switch (e.videoCodec, e.rateMode) {
         case (.copy, _):
             let bytes = clips.reduce(0.0) { sum, c in
@@ -559,11 +629,11 @@ enum SizeEstimate {
             }
             completion(Int64(bytes))
         case (_, .bitrate):
-            completion(Int64((e.bitrate * 1_000_000 + audioBps) / 8 * total))
+            completion(Int64(e.bitrate * 1_000_000 / 8 * total + audioBytes))
         case (_, .quality):
             sampleVideoRate(clips: clips, settings: e, metas: metas) { videoBps in
                 guard let videoBps else { completion(nil); return }
-                completion(Int64((videoBps + audioBps) / 8 * total))
+                completion(Int64(videoBps / 8 * total + audioBytes))
             }
         }
     }

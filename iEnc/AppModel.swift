@@ -45,6 +45,12 @@ final class AppModel {
     var outPoint: Double = 0
     /// 회전 표시 (시계 방향 각도)
     var rotation: Double = 0
+    /// 미리보기로 듣는 소리 트랙 (원본의 몇 번째 소리 트랙)
+    var listenTrack = 0
+    /// 자를 구간에 넣을 소리 트랙 (nil = 모두, [] = 소리 없이). 타임라인 구간을 고르면 그 구간의 값
+    var cutTracks: [Int]?
+    /// 지금 연 영상의 소리 트랙들
+    var audioTracks: [AudioTrack] { url.flatMap { metas[$0]?.audioTracks } ?? [] }
     var isPlaying = false
     var isScrubbing = false
     var openError: String?
@@ -75,7 +81,7 @@ final class AppModel {
     /// 고른 구간과 지금 범위가 다르면 (구간 적용 단추를 보인다)
     var selectionChanged: Bool {
         guard let clip = selectedClip else { return false }
-        return clip.url != url || abs(clip.start - inPoint) > 0.0005 || abs(clip.end - outPoint) > 0.0005
+        return clip.url != url || abs(clip.start - inPoint) > 0.0005 || abs(clip.end - outPoint) > 0.0005 || clip.audioTracks != cutTracks
     }
 
     // MARK: - 영상 열기
@@ -83,6 +89,7 @@ final class AppModel {
     /// 사이드바에서 영상을 누름: 구간 없이(전체 범위) 그 영상을 연다
     func openSource(_ source: Source) {
         selectedClipID = nil
+        cutTracks = nil
         if source.url == url && duration > 0 {
             if isPlaying { pause() }
             inPoint = 0
@@ -286,6 +293,8 @@ final class AppModel {
         position = range?.0 ?? 0
         duration = 0
         rotation = 0
+        listenTrack = 0
+        cutTracks = nil
         inPoint = range?.0 ?? 0
         outPoint = range?.1 ?? 0
         pendingRange = range
@@ -313,6 +322,7 @@ final class AppModel {
             guard let self, let engine, self.engine === engine else { return }
             self.openError = error
             self.rotation = engine.rotation
+            self.listenTrack = engine.audioTrack
             self.duration = engine.duration
             self.frameDuration = engine.frameDuration
             self.sourceOpened(url, duration: engine.duration)
@@ -339,6 +349,7 @@ final class AppModel {
         } else {
             open(clip.url, range: (clip.start, clip.end))
         }
+        cutTracks = clip.audioTracks
     }
 
     // MARK: - 구간 고르기
@@ -362,7 +373,8 @@ final class AppModel {
     /// 지금 구간을 타임라인 끝에 넣는다 (영상은 그대로 두고 또 자를 수 있다)
     func cut() {
         guard let url, outPoint > inPoint else { return }
-        let clip = Clip(url: url, start: inPoint, end: outPoint)
+        var clip = Clip(url: url, start: inPoint, end: outPoint)
+        clip.audioTracks = cutTracks
         clips.append(clip)
         selectedClipID = nil
     }
@@ -374,6 +386,7 @@ final class AppModel {
         clips[i].url = url
         clips[i].start = inPoint
         clips[i].end = outPoint
+        clips[i].audioTracks = cutTracks
         laneKeys[id] = nil  // 영상 줄 그림은 타임라인이 다시 부른다
     }
 
@@ -445,6 +458,35 @@ final class AppModel {
     func step(_ frames: Int) {
         if isPlaying { pause() }
         engine?.step(frames)
+    }
+
+    /// 구간에 넣을 소리 트랙을 짧게: "eng·jpn", "소리 없음". 트랙이 하나뿐이고 그대로 넣으면 nil (표시할 것 없음)
+    func trackSummary(_ tracks: [Int]?, of url: URL) -> String? {
+        let all = metas[url]?.audioTracks ?? []
+        if tracks == [] && !all.isEmpty { return "소리 없음" }
+        let list = tracks ?? Array(all.indices)
+        guard all.count > 1 else { return nil }
+        return list.filter { $0 < all.count }.map { all[$0].short($0 + 1) }.joined(separator: "·")
+    }
+
+    /// 미리보기로 들을 소리 트랙 바꾸기 (재생 중이면 그 자리에서 이어 재생)
+    func listen(_ track: Int) {
+        guard let engine, track != listenTrack else { return }
+        let wasPlaying = isPlaying
+        if wasPlaying { pause() }
+        listenTrack = track
+        engine.selectAudio(track) { [weak self] in
+            if wasPlaying { self?.play() }
+        }
+    }
+
+    /// 자를 구간에 넣을 트랙 하나 켜기·끄기 (모두 켜지면 nil = "모두")
+    func toggleCutTrack(_ track: Int) {
+        let all = Array(audioTracks.indices)
+        var set = Set(cutTracks ?? all)
+        if set.contains(track) { set.remove(track) } else { set.insert(track) }
+        let list = all.filter { set.contains($0) }
+        cutTracks = list == all ? nil : list
     }
 
     func togglePlay() {

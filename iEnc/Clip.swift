@@ -9,6 +9,8 @@ struct Clip: Identifiable, Equatable {
     var end: Double
     /// 음량 조절 (dB, 0 = 그대로). 변환할 때 적용 (아직 변환 기능 없음)
     var gain: Double = 0
+    /// 넣을 소리 트랙 (원본의 몇 번째 소리 트랙, 0부터). nil = 모두, 빈 배열 = 소리 없이
+    var audioTracks: [Int]? = nil
 
     var length: Double { max(0, end - start) }
 

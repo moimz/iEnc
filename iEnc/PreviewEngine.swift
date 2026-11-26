@@ -28,6 +28,9 @@ final class PreviewEngine: @unchecked Sendable {
     private(set) var rotation: Double = 0
     private(set) var hasVideo = false
     private(set) var hasAudio = false
+    /// 원본의 소리 스트림 번호들 (소리 트랙 순서) · 지금 듣는 트랙 (그 안의 몇 번째)
+    private(set) var audioStreams: [Int32] = []
+    private(set) var audioTrack = 0
 
     private let renderer: AVSampleBufferVideoRenderer
     private let audioRenderer: AVSampleBufferAudioRenderer
@@ -56,6 +59,9 @@ final class PreviewEngine: @unchecked Sendable {
     private var swrKey = ""
     private var audioFormat: CMAudioFormatDescription?
     private var audioFormatRate: Int32 = 0
+    /// 다음 소리 샘플이 놓일 자리 (샘플 단위). MKV 처럼 시각이 1ms 로 반올림된 파일은 프레임마다 시각이 0.5ms 안팎 어긋나,
+    /// 그대로 넘기면 조각 사이가 겹치거나 비어 소리가 지글거린다 → 이어지는 프레임은 앞 프레임 끝에 딱 붙인다
+    private var audioNext: Int64?
 
     /// 마지막으로 푼 영상 프레임 시각 (빠른 전진 판단용). 디코더를 비우거나 EOF 를 지나면 nil
     private var decodedUntil: Double?
@@ -105,6 +111,8 @@ final class PreviewEngine: @unchecked Sendable {
 
             vIndex = av_find_best_stream(ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
             aIndex = av_find_best_stream(ctx, AVMEDIA_TYPE_AUDIO, -1, vIndex, nil, 0)
+            audioStreams = (0..<Int32(ctx.pointee.nb_streams)).filter { ctx.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO }
+            audioTrack = audioStreams.firstIndex(of: aIndex) ?? 0
             if vIndex >= 0 { openVideo() }
             if aIndex >= 0 { openAudio() }
             hasVideo = vCtx != nil
@@ -182,6 +190,21 @@ final class PreviewEngine: @unchecked Sendable {
         }
         aCtx = c
         aTB = st.pointee.time_base
+    }
+
+    /// 들을 소리 트랙 바꾸기 (멈춘 상태에서. 재생 중이면 부르는 쪽이 멈췄다 다시 재생)
+    func selectAudio(_ track: Int, completion: @escaping () -> Void) {
+        queue.async { [self] in
+            if audioStreams.indices.contains(track), audioStreams[track] != aIndex {
+                avcodec_free_context(&aCtx)
+                aIndex = audioStreams[track]
+                audioTrack = track
+                openAudio()
+                hasAudio = aCtx != nil
+                audioNext = nil
+            }
+            DispatchQueue.main.async { completion() }
+        }
     }
 
     // MARK: - 멈춤 상태 탐색 (프레임 단위)
@@ -454,6 +477,7 @@ final class PreviewEngine: @unchecked Sendable {
             decodedUntil = nil
             renderer.flush()
             audioRenderer.flush()
+            audioNext = nil
             sync.setRate(0, time: CMTime(seconds: time, preferredTimescale: 90000))
 
             var videoAhead = time
@@ -696,9 +720,12 @@ final class PreviewEngine: @unchecked Sendable {
         var block: CMBlockBuffer?
         guard CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: bytes, blockAllocator: nil, customBlockSource: nil, offsetToData: 0, dataLength: bytes, flags: 0, blockBufferOut: &block) == noErr, let block else { return nil }
         samples.withUnsafeBytes { _ = CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: bytes) }
+        var at = Int64((time * Double(rate)).rounded())
+        if let next = audioNext, abs(at - next) <= Int64(rate) / 50 { at = next }  // 20ms 안쪽 어긋남은 이어 붙임
+        audioNext = at + Int64(count)
         var sb: CMSampleBuffer?
         CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: nil, dataBuffer: block, formatDescription: audioFormat, sampleCount: CMItemCount(count),
-                                                             presentationTimeStamp: CMTime(seconds: time, preferredTimescale: CMTimeScale(rate)),
+                                                             presentationTimeStamp: CMTime(value: at, timescale: CMTimeScale(rate)),
                                                              packetDescriptions: nil, sampleBufferOut: &sb)
         return sb
     }

@@ -301,6 +301,23 @@ private struct ClipBlock: View {
             // 아직 거의 못 채웠으면 돌아가는 표시 (NAS 의 긴 구간은 수십 초 걸린다)
             if wave?.done != true && clipFilled < 0.03 { ProgressView().controlSize(.mini) }
         }
+        .overlay {
+            // 소리를 빼고 자른 구간은 흐리게 (변환하면 소리가 없다)
+            if clip.audioTracks == [] { Color.black.opacity(0.55).allowsHitTesting(false) }
+        }
+        .overlay(alignment: .topLeading) {
+            // 넣을 소리 트랙 (트랙이 여럿이거나 소리를 뺀 구간만)
+            if let text = model.trackSummary(clip.audioTracks, of: clip.url) {
+                Label(text, systemImage: clip.audioTracks == [] ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .lineLimit(1)
+                    .padding(.horizontal, 3)
+                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
+                    .foregroundStyle(.white)
+                    .padding(2)
+                    .allowsHitTesting(false)
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if dragGain != nil || clip.gain != 0 {
                 Text(String(format: "%+.1f dB", gain))
