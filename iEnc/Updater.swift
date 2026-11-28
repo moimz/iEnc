@@ -56,7 +56,7 @@ struct UpdateSection: View {
             LabeledContent("버전") {
                 HStack(spacing: 8) {
                     // Ai.md "앱 안의 버전 표시": 0.1 (빌드 55 · 1db8638)
-                    Text(iEncApp.versionText).foregroundStyle(.secondary).monospacedDigit().textSelection(.enabled)
+                    Text(iEncApp.versionText).foregroundStyle(.secondary).monospacedDigit().lineLimit(1).fixedSize()  // 버튼 옆 글이 잘리지 않게 (Ai.md 설정 창 공통)
                     Button("업데이트 확인…") { updater.checkForUpdates() }.disabled(!updater.canCheck)
                 }
             }

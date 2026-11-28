@@ -138,7 +138,8 @@ private struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            Section("저장") {
+            // 칸 설명은 footer 에 글꼴·색 없이 (Ai.md "설정 창 공통")
+            Section {
                 Picker("기본 저장 위치", selection: $location) {
                     ForEach(SaveLocation.allCases) { Text($0.label).tag($0) }
                 }
@@ -165,28 +166,29 @@ private struct GeneralSettings: View {
                         Button("기본값") { template = FileNameTemplate.defaultValue }
                             .controlSize(.small)
                     }
-                    Text("예: " + FileNameTemplate.render(template, name: "나의동영상", number: 1, start: 1834.5) + ".mp4")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                 }
+            } header: {
+                Text("저장")
+            } footer: {
+                Text("예: " + FileNameTemplate.render(template, name: "나의동영상", number: 1, start: 1834.5) + ".mp4")
             }
-            Section("변환") {
+            Section {
                 Picker("CPU 사용량", selection: $cpuLimit) {
                     Text("최대").tag(1.0)
                     Text("절반").tag(0.5)
                     Text("적게 (4분의 1)").tag(0.25)
                 }
+            } header: {
+                Text("변환")
+            } footer: {
                 Text("인코딩할 때 사용할 CPU 스레드 수를 설정합니다. 하드웨어 인코딩에는 영향이 없고, CPU 인코딩(x265·x264)의 변환 속도에 영향을 줍니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-            Section("미리보기") {
+            Section {
                 Toggle("하드웨어 디코딩 (VideoToolbox)", isOn: $hardware)
+            } header: {
+                Text("미리보기")
+            } footer: {
                 Text("기본적으로 탐색 속도 향상을 위해 소프트웨어 디코딩을 사용합니다. 다만 AV1 같이 소프트웨어 디코딩이 되지 않는 형식은 항상 하드웨어 디코딩을 사용합니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             // 버전 · 업데이트 확인 · 자동 확인 (Sparkle)
             UpdateSection()
